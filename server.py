@@ -9,7 +9,108 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 HTML_FILE = os.path.join(BASE, 'index.html')
 BACKUP_DIR = os.path.join(BASE, 'backups')
 
-def h(p): return hashlib.sha256(p.encode()).hexdigest()
+import secrets, threading, time
+
+# ═══════════════════════════════════════════════════════════════════
+# [v124] امن‌سازی رمز عبور
+# مشکل قبلی: sha256 بدون نمک. رمزهای ۴ رقمی در کمتر از یک ثانیه شکسته
+# می‌شدند (۱۰ رمز از ۱۳ کاربر با آزمودن ۱۱ هزار حالت پیدا شد).
+# راه‌حل: PBKDF2-HMAC-SHA256 با نمک تصادفی و ۲۰۰٬۰۰۰ تکرار.
+# مهاجرت نرم: هش قدیمی همچنان پذیرفته می‌شود و در اولین ورود موفق
+# خودکار به فرمت جدید ارتقا می‌یابد؛ هیچ کاربری بیرون نمی‌ماند.
+# ═══════════════════════════════════════════════════════════════════
+PBKDF2_ROUNDS = 200_000
+
+def h(p):
+    """هش قدیمی — فقط برای تشخیص و مهاجرت رمزهای پیشین نگه داشته شده."""
+    return hashlib.sha256(p.encode()).hexdigest()
+
+def hash_password(p):
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac('sha256', p.encode(), salt.encode(), PBKDF2_ROUNDS)
+    return f'pbkdf2${PBKDF2_ROUNDS}${salt}${dk.hex()}'
+
+def verify_password(p, stored):
+    """هر دو فرمت را می‌پذیرد. برمی‌گرداند: (درست بود؟, نیاز به ارتقا دارد؟)"""
+    if not stored:
+        return False, False
+    if stored.startswith('pbkdf2$'):
+        try:
+            _, rounds, salt, want = stored.split('$', 3)
+            dk = hashlib.pbkdf2_hmac('sha256', p.encode(), salt.encode(), int(rounds))
+            return secrets.compare_digest(dk.hex(), want), False
+        except (ValueError, TypeError):
+            return False, False
+    # فرمت قدیمی sha256 — اگر درست بود، باید ارتقا یابد
+    return secrets.compare_digest(h(p), stored), secrets.compare_digest(h(p), stored)
+
+# ── قانون رمز قوی ──────────────────────────────────────────────────
+PASSWORD_MIN_LEN = 8
+COMMON_PASSWORDS = {
+    '12345678','123456789','1234567890','password','password1','qwerty','qwertyui',
+    'abc12345','11111111','00000000','iloveyou','admin123','root1234','welcome1',
+    'passw0rd','sunshine','princess','football','baseball','superman','trustno1',
+    'mehr1234','12341234','asdfasdf','zxcvbnm1','qazwsxedc','1q2w3e4r','1qaz2wsx',
+}
+
+def password_problems(pw, username=''):
+    """فهرست ایرادهای رمز را برمی‌گرداند. لیست خالی یعنی رمز قابل قبول است."""
+    pw = (pw or '')
+    bad = []
+    if len(pw) < PASSWORD_MIN_LEN:
+        bad.append(f'رمز باید حداقل {PASSWORD_MIN_LEN} کاراکتر باشد (الان {len(pw)} کاراکتر است)')
+    if pw.isdigit():
+        bad.append('رمز نباید فقط عدد باشد — حداقل یک حرف انگلیسی اضافه کنید')
+    if pw.isalpha():
+        bad.append('رمز نباید فقط حرف باشد — حداقل یک عدد اضافه کنید')
+    if not re.search(r'[A-Za-z\u0600-\u06FF]', pw):
+        bad.append('رمز باید حداقل یک حرف داشته باشد')
+    if not re.search(r'\d', pw):
+        bad.append('رمز باید حداقل یک عدد داشته باشد')
+    if pw.lower() in COMMON_PASSWORDS:
+        bad.append('این رمز بسیار رایج است و به‌راحتی حدس زده می‌شود')
+    if len(set(pw)) <= 2 and pw:
+        bad.append('رمز نباید از تکرار یک یا دو کاراکتر ساخته شود')
+    if re.search(r'(0123|1234|2345|3456|4567|5678|6789|abcd|qwer|asdf)', pw.lower()):
+        bad.append('رمز نباید شامل دنباله‌های پشت‌سرهم مثل ۱۲۳۴ یا abcd باشد')
+    if username and len(username) >= 3 and username.lower() in pw.lower():
+        bad.append('رمز نباید شامل نام کاربری باشد')
+    return bad
+
+def password_is_weak_legacy(stored):
+    """آیا رمز ذخیره‌شده هنوز با فرمت ناامن قدیمی است؟ (برای نشان دادن هشدار)"""
+    return bool(stored) and not str(stored).startswith('pbkdf2$')
+
+# ── محدودیت تلاش ورود ──────────────────────────────────────────────
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCK_SECONDS = 300
+_login_attempts = {}
+_login_lock = threading.Lock()
+
+def login_locked_for(username):
+    """اگر حساب قفل است، ثانیه‌های باقی‌مانده را برمی‌گرداند، وگرنه صفر."""
+    with _login_lock:
+        rec = _login_attempts.get(username)
+        if not rec:
+            return 0
+        count, until = rec
+        if until and until > time.time():
+            return int(until - time.time())
+        if until and until <= time.time():
+            _login_attempts.pop(username, None)
+        return 0
+
+def login_note_failure(username):
+    with _login_lock:
+        count, _ = _login_attempts.get(username, (0, 0))
+        count += 1
+        until = time.time() + LOGIN_LOCK_SECONDS if count >= LOGIN_MAX_ATTEMPTS else 0
+        _login_attempts[username] = (count, until)
+        return LOGIN_MAX_ATTEMPTS - count
+
+def login_note_success(username):
+    with _login_lock:
+        _login_attempts.pop(username, None)
 
 # لیست کامل مجوزهای دسترسی سطح‌کاربر (بدون تغییر نسبت به نسخه قبلی + یک مجوز جدید)
 PERM_KEYS = [
@@ -21,6 +122,13 @@ PERM_KEYS = [
     'view_financial','view_reports','export_excel',
     'manage_contracts','view_all_purchases','view_all',
     'manage_supply_plan','manage_petty_cash','petty_view_all',
+    # [v131] تجمیع مدارک مالی: دارندهٔ این مجوز همهٔ اسناد «تحویل مدارک به
+    # مالی» را می‌بیند تا بتواند آن‌ها را یک‌جا به واحد مالی تحویل دهد،
+    # بدون اینکه به بقیهٔ داده‌های مالی دیگران دسترسی پیدا کند.
+    'invoice_docs_view_all',
+    # [v140] ثبت/ویرایش/حذف اسناد تحویل مدارک. پیش از این هیچ مجوزی نداشت و
+    # هر کاربر واردشده‌ای می‌توانست سند مالی بسازد، تغییر دهد و حذف کند.
+    'invoice_docs_edit',
     'petty_deposit_view','petty_deposit_finance','petty_deposit_delivery','petty_deposit_review',
     'page_dashboard','page_cartable','page_purchase_new','page_purchases',
     'page_shipping_new','page_shippings','page_non_fulfill','page_price_compare',
@@ -31,8 +139,17 @@ PERM_KEYS = [
     'create_contract','edit_contract','delete_contract',
     'create_supply_plan','edit_supply_plan','delete_supply_plan',
     'create_petty_charge','edit_petty_charge','delete_petty_charge',
+    # [v115] تفکیک «صورت تنخواه» از «شارژ تنخواه»:
+    # صورت تنخواه = فهرست هزینه‌هایی که کارشناس ثبت می‌کند
+    # شارژ تنخواه = واریز پول به حساب تنخواه‌دار (عملیات مالی، فقط مدیر صندوق)
+    # پیش از این هر دو با یک مجوز کنترل می‌شدند و قابل تفکیک نبودند.
+    'create_petty_statement','edit_petty_statement','delete_petty_statement',
     # ماژول فروش
     'page_sales','create_sale','edit_sale','delete_sale','register_sale_return',
+    # [v136] چهار مجوز «شبح»: در رابط کاربری استفاده می‌شدند ولی در این فهرست
+    # نبودند، پس هرگز قابل اعطا نبودند و صفحهٔ دسترسی نمی‌توانست آن‌ها را
+    # ذخیره کند. حالا واقعی شدند.
+    'page_audit_log','page_data_health','manage_items','issue_statement_cover',
     'readonly'
 ]
 
@@ -70,8 +187,86 @@ DOC_PATHS = {
     'supply_plans':'supply_plans', 'need_declarations':'need_declarations',
     'petty_cash':'petty_cash', 'petty_deposits':'petty_deposits', 'petty_charges':'petty_charges',
     'manual_receipts':'manual_receipts', 'ship_queue':'ship_queue', 'invoice_docs':'invoice_docs',
-    'items':'items'
+    'items':'items',
+    # [v125] بایگانی تاریخی عدم تحقق.
+    # این رکوردها پیش‌تر در PRELOADED_NF_DATA داخل index.html سخت‌کد بودند و
+    # چون در دیتابیس نبودند، حذفشان بی‌اثر بود و هر بار دوباره تزریق می‌شدند.
+    # روی purchase_items نمی‌نشینند: ۴۳ مورد از ۵۴ درخواست متناظر ندارند و
+    # nf_qty متن آزاد است («۴۰۰کیلو»، «کل درخواست»)، نه عدد.
+    'nf_records':'nf_records'
 }
+
+# ───────────────────────────────────────────────────────────────────────────
+# مجوزهای هم‌ارز
+#
+# در صفحه‌ی کاربران فقط ۱۹ مجوز از ۶۷ مجوز برچسب فارسی دارند و قابل تیک‌زدن‌اند.
+# مثلاً «مدیریت تنخواه» نمایش داده می‌شود ولی «ثبت صورت تنخواه» نه — در نتیجه
+# کاربری که مجوز مدیریت دارد، نمی‌توانست رکورد جدید ثبت کند و راهی هم برای
+# فعال‌کردن آن وجود نداشت.
+#
+# این نگاشت می‌گوید: اگر کاربر مجوز سمت راست را دارد، مجوز سمت چپ هم برایش
+# مجاز است. این یک راه‌حل موقت تا زمانی است که صفحه‌ی کاربران همه‌ی مجوزها را
+# نمایش دهد.
+PERM_EQUIVALENT = {
+    # شارژ تنخواه (واریز پول) — عملیات مالی حساس.
+    # هیچ مجوز هم‌ارزی ندارد: باید صریحاً تیک بخورد.
+    'create_petty_charge': (),
+    'edit_petty_charge':   (),
+    'delete_petty_charge': (),
+    # صورت تنخواه (ثبت هزینه‌ها) — کارشناسان. مجوزهای قدیمی همچنان معتبرند
+    # تا هیچ کاربری پس از به‌روزرسانی دسترسی از دست ندهد.
+    'create_petty_statement': ('manage_petty_cash', 'edit_petty_statement',
+                               'create_petty_charge', 'edit_petty_charge'),
+    'edit_petty_statement':   ('manage_petty_cash', 'edit_petty_charge'),
+    'delete_petty_statement': ('manage_petty_cash', 'delete_petty_charge'),
+    'create_contract':     ('manage_contracts', 'edit_contract'),
+    'edit_contract':       ('manage_contracts',),
+    'delete_contract':     ('manage_contracts',),
+    'create_supply_plan':  ('manage_supply_plan', 'edit_supply_plan'),
+    'edit_supply_plan':    ('manage_supply_plan',),
+    'delete_supply_plan':  ('manage_supply_plan',),
+    'create_supplier':     ('manage_suppliers', 'edit_supplier'),
+    'edit_supplier':       ('manage_suppliers',),
+    'delete_supplier':     ('manage_suppliers',),
+}
+
+# کلیدهای عمومی تنظیمات که فرانت‌اند از طریق POST /api/settings/<key> می‌فرستد.
+# پیش از این، این کلیدها در handle_settings_post به هیچ شاخه‌ای نمی‌خوردند و بی‌صدا
+# دور ریخته می‌شدند (در حالی که سرور ok:True برمی‌گرداند). همین باعث شد فرانت‌اند
+# مجبور شود آن‌ها را در localStorage یا در فیلد address یک تامین‌کننده‌ی ساختگی نگه دارد.
+GENERIC_SETTING_KEYS = {
+    'purchase_overrides', 'opening_balances', 'hidden_experts',
+    'sticky_notes', 'supplier_categories', 'deleted_suppliers',
+    'dismissed_nfs', 'supplier_rename_map', 'saved_views',
+    'inquiry_three_page',   # [v125]
+}
+
+# همه‌ی کلیدهایی که نوشتن‌شان در جدول settings مجاز است (برای ذخیره‌ی یکجا)
+ALLOWED_SETTING_KEYS = GENERIC_SETTING_KEYS | {
+    'signature_b64', 'approver_signature_b64', 'vat_rate',
+    'petty_tracking', 'dash_labels', 'nf_descriptions', 'mrp_plan', 'petty_fund',
+    # [v125] «استعلام سه برگی» پیش‌تر هیچ مسیر ذخیره واقعی نداشت و تنها راه
+    # ماندگاری‌اش هک tunnelSave بود (ذخیره داخل فیلد آدرس یک تامین‌کننده ساختگی).
+    'inquiry_three_page',
+}
+
+# ───────────────────────────────────────────────────────────────────────────
+# تنخواه: فیلدهای هر نقش در «واریز تنخواه» (مطابق trackCanEdit در فرانت‌اند)
+# پیش از این، این سه مجوز فقط در مرورگر بررسی می‌شدند و سرور هیچ کنترلی نداشت؛
+# یعنی کاربر بدون مجوز می‌توانست از راه API همان فیلدها را تغییر دهد.
+PETTY_DEPOSIT_FIELD_PERM = {
+    # نقش مالی: مبلغ و تاریخ واریز و مبلغ مدارک
+    'petty_deposit_finance':  ['amount', 'date', 'to_fund_amount', 'allocations',
+                               'doc_amount', 'deposit_date', 'fund_manager'],
+    # نقش تحویل: تاریخ تحویل مدارک
+    'petty_deposit_delivery': ['delivery_date', 'docs_delivered_date', 'delivered_at'],
+    # نقش بررسی: علت مغایرت و نتیجه بررسی
+    'petty_deposit_review':   ['review_note', 'review_result', 'discrepancy_reason',
+                               'reviewed_by', 'reviewed_at'],
+}
+
+# مالکیت رکوردهای تنخواه برای دامنه‌ی دید «فقط خودش»
+PETTY_OWNER_FIELDS = ('holder', 'expert', 'created_by')
 
 KNOWN_REQUEST = {'id','req_number','expert','req_date','status','created_by','created_at','imported','_actor'}
 KNOWN_PURCHASE = {'id','req_number','expert','supplier','supplier_id','date','is_contract','no_request',
@@ -203,10 +398,371 @@ def shipping_row_to_dict(conn, row):
     out['items'] = [shipitem_row_to_dict(r) for r in items]
     return out
 
+# ───────────────────────────────────────────────────────────────────────────
+# [v118] هیچ تأمین‌کننده‌ای محافظت‌شده نیست — همه مثل هم قابل حذف‌اند.
+# فقط رکوردهای داخلی خودِ سیستم (که تأمین‌کننده نیستند) استثنا می‌مانند.
+PROTECTED_SUPPLIER_PREFIXES = (
+    'سیستم بازرگانی',  # رکوردهای داخلی سیستم، نه تأمین‌کننده واقعی
+)
+
+
+def is_protected_supplier(name):
+    """فقط رکوردهای داخلی سیستم. سرفصل‌های هزینه مثل بقیه قابل حذف‌اند."""
+    n = _norm_sup_name(name)
+    return any(n.startswith(p) for p in PROTECTED_SUPPLIER_PREFIXES)
+
+
+def supplier_usage_count(conn, sup_id, sup_name):
+    """چند رکورد به این تأمین‌کننده وصل است؟ (خرید، پرداخت، ارسال، اسناد)"""
+    n = 0
+    n += conn.execute('SELECT COUNT(*) FROM purchases WHERE supplier_id=? OR supplier=?',
+                      (sup_id, sup_name)).fetchone()[0]
+    n += conn.execute('SELECT COUNT(*) FROM supplier_payments WHERE supplier_id=? OR supplier=?',
+                      (sup_id, sup_name)).fetchone()[0]
+    n += conn.execute('SELECT COUNT(*) FROM shipping_items WHERE supplier=?',
+                      (sup_name,)).fetchone()[0]
+    for coll in ('contracts', 'invoice_docs', 'contract_payments', 'manual_receipts'):
+        for r in conn.execute('SELECT data FROM docs WHERE collection=?', (coll,)):
+            try:
+                d = json.loads(r[0])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(d, dict):
+                continue
+            for f in ('supplier', 'party', 'seller', 'vendor'):
+                if _norm_sup_name(d.get(f)) == _norm_sup_name(sup_name):
+                    n += 1
+                    break
+    return n
+
+
+FINANCIAL_FIELDS = ('unit_price', 'total', 'invoice_amount', 'paid', 'paid_amount',
+                    'remaining_amount', 'vat', 'discount', 'amount', 'payments',
+                    'financial_status', 'due_date', 'payment_method', 'paid_date')
+
+
+def strip_financial_fields(rec):
+    """[v120] حذف اعداد مالی از یک رکورد، برای کاربری که مجوز مالی ندارد.
+    خودِ رکورد (شماره درخواست، کالا، تعداد) می‌ماند تا کار عملیاتی مختل نشود."""
+    if not isinstance(rec, dict):
+        return rec
+    out = dict(rec)
+    for f in FINANCIAL_FIELDS:
+        if f in out:
+            out[f] = None
+    for li in (out.get('line_items') or []):
+        if isinstance(li, dict):
+            for f in FINANCIAL_FIELDS:
+                if f in li:
+                    li[f] = None
+    return out
+
+
 def supplier_row_to_dict(row):
     d = dict(row)
     d['is_active'] = bool(d.get('is_active', 1))
     return d
+
+# ═══════════════════════════════════════════════════════════════════
+# [v124] پشتیبان‌گیری خودکار
+# مشکل قبلی: روت /api/backup فقط با فشردن دکمه اجرا می‌شد و هیچ
+# زمان‌بندی‌ای نداشت. پوشه backups هرگز ساخته نشده بود، یعنی در تمام
+# عمر سیستم حتی یک پشتیبان هم گرفته نشده بود.
+# ═══════════════════════════════════════════════════════════════════
+BACKUP_EVERY_HOURS = 6
+BACKUP_KEEP_RECENT = 12    # ۱۲ نسخه آخر همیشه دست‌نخورده (شامل چند نسخه در یک روز)
+BACKUP_KEEP_DAILY = 7      # سپس یک نسخه برای هر روز، ۷ روز اخیر
+BACKUP_KEEP_WEEKLY = 4     # سپس یک نسخه برای هر هفته، ۴ هفته
+_backup_lock = threading.Lock()
+
+def _backup_prune():
+    """نگه‌داری هوشمند بدون از دست دادن نسخه‌های تازه.
+    ابتدا ۱۲ نسخه آخر بی‌قیدوشرط نگه داشته می‌شوند (تا چند پشتیبان در یک
+    روز — مثلاً قبل از عملیات خطرناک — حفظ شود)، سپس یک نسخه برای هر روز
+    و یک نسخه برای هر هفته قدیمی‌تر."""
+    try:
+        files = sorted(f for f in os.listdir(BACKUP_DIR)
+                       if f.startswith('mehr_') and f.endswith('.db'))
+    except OSError:
+        return
+    keep = set(files[-BACKUP_KEEP_RECENT:])            # تازه‌ترین‌ها همیشه می‌مانند
+    by_day, by_week = {}, {}
+    for f in files:
+        try:
+            dt = datetime.datetime.strptime(f[5:20], '%Y%m%d_%H%M%S')
+        except ValueError:
+            keep.add(f); continue
+        by_day[dt.strftime('%Y%m%d')] = f              # آخرین نسخه هر روز
+        by_week[dt.strftime('%Y-W%W')] = f             # آخرین نسخه هر هفته
+    keep |= set(sorted(by_day.values())[-BACKUP_KEEP_DAILY:])
+    keep |= set(sorted(by_week.values())[-BACKUP_KEEP_WEEKLY:])
+    for f in files:
+        if f not in keep:
+            try: os.remove(os.path.join(BACKUP_DIR, f))
+            except OSError: pass
+
+def make_backup(reason='خودکار', actor=None):
+    """یک نسخه پشتیبان می‌سازد و سلامت آن را بررسی می‌کند."""
+    import sqlite3 as _sqlite3
+    with _backup_lock:
+        try:
+            os.makedirs(BACKUP_DIR, exist_ok=True)
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            dest = os.path.join(BACKUP_DIR, f'mehr_{ts}.db')
+            src = db.get_conn()
+            try:
+                with _sqlite3.connect(dest) as bconn:
+                    src.backup(bconn)
+            finally:
+                src.close()
+            # بررسی سلامت: پشتیبان خرابْ بدتر از نداشتن پشتیبان است
+            chk = _sqlite3.connect(dest)
+            try:
+                integrity = chk.execute('PRAGMA integrity_check').fetchone()[0]
+                nrec = chk.execute('SELECT COUNT(*) FROM purchases').fetchone()[0]
+            finally:
+                chk.close()
+            if integrity != 'ok':
+                os.remove(dest)
+                return {'ok': False, 'error': f'پشتیبان سالم نبود: {integrity}'}
+            _backup_prune()
+            size = os.path.getsize(dest)
+            safe_print(f'پشتیبان گرفته شد: {os.path.basename(dest)} '
+                       f'({size/1048576:.1f} مگابایت، {nrec} خرید) — {reason}')
+            return {'ok': True, 'file': os.path.basename(dest), 'size': size,
+                    'purchases': nrec, 'reason': reason,
+                    'created_at': datetime.datetime.now().isoformat()}
+        except Exception as e:
+            safe_print(f'خطا در پشتیبان‌گیری: {e}')
+            return {'ok': False, 'error': str(e)}
+
+def backup_list():
+    """فهرست نسخه‌های موجود، تازه‌ترین اول."""
+    out = []
+    try:
+        for f in sorted(os.listdir(BACKUP_DIR), reverse=True):
+            if not (f.startswith('mehr_') and f.endswith('.db')):
+                continue
+            full = os.path.join(BACKUP_DIR, f)
+            try:
+                dt = datetime.datetime.strptime(f[5:20], '%Y%m%d_%H%M%S').isoformat()
+            except ValueError:
+                dt = ''
+            out.append({'file': f, 'size': os.path.getsize(full), 'created_at': dt})
+    except OSError:
+        pass
+    return out
+
+def _backup_scheduler():
+    """هر BACKUP_EVERY_HOURS ساعت یک پشتیبان خودکار می‌گیرد."""
+    def tick():
+        while True:
+            time.sleep(BACKUP_EVERY_HOURS * 3600)
+            try:
+                make_backup(reason='خودکار زمان‌بندی‌شده')
+            except Exception as e:
+                safe_print(f'خطای زمان‌بند پشتیبان: {e}')
+    t = threading.Thread(target=tick, daemon=True)
+    t.start()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# [v124] سطل بازیافت
+# یافته مهم: log_audit از قبل عکس کامل رکورد را در before_json ذخیره
+# می‌کرده. ۱۹۶۳ حذف از ۱۹۶۴ نسخه کامل دارند و هیچ شناسه‌ای دوباره
+# اشغال نشده. پس نیازی به تغییر ساختار جدول‌ها نیست — فقط باید
+# راه بازگرداندن ساخته شود.
+# ═══════════════════════════════════════════════════════════════════
+TRASH_DAYS = 30
+RESTORABLE = {
+    'purchases':  ('purchases',  'خرید'),
+    'requests':   ('requests',   'درخواست'),
+    'petty_cash': (None,         'تنخواه'),
+    'petty_charges': (None,      'شارژ تنخواه'),
+    'supply_plans': (None,       'برنامه تامین'),
+}
+# ارسال‌ها عمداً اینجا نیستند: بازگرداندن یک ارسال باید تعداد ارسال‌شده
+# اقلام را هم برگرداند، وگرنه آمار خراب می‌شود. نیازمند بررسی دستی.
+NOT_RESTORABLE_NOTE = {
+    'shippings': 'بازگرداندن ارسال روی موجودی و آمار اقلام اثر می‌گذارد و باید دستی بررسی شود',
+    'users': 'بازگرداندن کاربر به‌دلیل مسائل امنیتی دستی انجام می‌شود',
+}
+
+def trash_list(conn, days=TRASH_DAYS):
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        "SELECT id, ts, actor, entity, entity_id, before_json, note FROM audit_log "
+        "WHERE action='delete' AND ts > ? AND before_json IS NOT NULL AND before_json <> '' "
+        "ORDER BY id DESC LIMIT 500", (cutoff,)).fetchall()
+    out = []
+    for r in rows:
+        try:
+            data = json.loads(r['before_json'])
+        except (ValueError, TypeError):
+            continue
+        ent = r['entity']
+        # آیا شناسه دوباره اشغال شده؟
+        occupied = False
+        tbl = RESTORABLE.get(ent, (None, None))[0]
+        if tbl:
+            occupied = conn.execute(f'SELECT 1 FROM {tbl} WHERE id=?', (r['entity_id'],)).fetchone() is not None
+        elif ent in ('petty_cash', 'petty_charges', 'supply_plans'):
+            occupied = conn.execute('SELECT 1 FROM docs WHERE collection=? AND id=?',
+                                    (ent, r['entity_id'])).fetchone() is not None
+        label = data.get('req_number') or data.get('number') or data.get('name') or data.get('title') or ''
+        desc = ''
+        if ent == 'purchases':
+            items = data.get('line_items') or []
+            desc = (items[0].get('item_name', '') if items else data.get('item_name', '')) or ''
+            if len(items) > 1:
+                desc += f' و {len(items)-1} قلم دیگر'
+        elif ent == 'requests':
+            desc = data.get('expert', '')
+        out.append({
+            'audit_id': r['id'], 'ts': r['ts'], 'actor': r['actor'],
+            'entity': ent, 'entity_fa': RESTORABLE.get(ent, (None, ent))[1],
+            'entity_id': r['entity_id'], 'label': str(label), 'desc': str(desc)[:60],
+            'supplier': data.get('supplier', ''), 'note': r['note'] or '',
+            'restorable': ent in RESTORABLE and not occupied,
+            'blocked_reason': (NOT_RESTORABLE_NOTE.get(ent) if ent not in RESTORABLE
+                               else ('این شناسه دوباره استفاده شده است' if occupied else '')),
+        })
+    return out
+
+def _row_from_snapshot(conn, table, data):
+    """فقط کلیدهایی که ستون واقعی جدول‌اند؛ بقیه به extra_json می‌روند."""
+    cols = [c[1] for c in conn.execute(f'PRAGMA table_info({table})')]
+    row, extra = {}, {}
+    for k, v in data.items():
+        if k == 'extra_json':
+            continue
+        if k in cols:
+            row[k] = json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
+        elif k not in ('line_items', 'items'):
+            extra[k] = v
+    if 'extra_json' in cols:
+        row['extra_json'] = json.dumps(extra, ensure_ascii=False)
+    return row
+
+def trash_restore(conn, audit_id, actor):
+    rec = conn.execute("SELECT * FROM audit_log WHERE id=? AND action='delete'", (audit_id,)).fetchone()
+    if not rec:
+        return {'ok': False, 'error': 'این رکورد در سطل بازیافت پیدا نشد'}
+    ent, rid = rec['entity'], rec['entity_id']
+    if ent not in RESTORABLE:
+        return {'ok': False, 'error': NOT_RESTORABLE_NOTE.get(ent, 'این نوع رکورد قابل بازگرداندن خودکار نیست')}
+    try:
+        data = json.loads(rec['before_json'] or '{}')
+    except (ValueError, TypeError):
+        return {'ok': False, 'error': 'نسخه پشتیبان این رکورد سالم نیست'}
+    if not data:
+        return {'ok': False, 'error': 'نسخه پشتیبان این رکورد خالی است'}
+
+    tbl = RESTORABLE[ent][0]
+    # نگهبان: هرگز روی رکورد موجود بازنویسی نکن
+    if tbl:
+        if conn.execute(f'SELECT 1 FROM {tbl} WHERE id=?', (rid,)).fetchone():
+            return {'ok': False, 'error': f'شناسه {rid} دوباره استفاده شده — بازگرداندن انجام نشد'}
+    else:
+        if conn.execute('SELECT 1 FROM docs WHERE collection=? AND id=?', (ent, rid)).fetchone():
+            return {'ok': False, 'error': f'شناسه {rid} دوباره استفاده شده — بازگرداندن انجام نشد'}
+
+    make_backup(reason=f'قبل از بازگرداندن {ent}/{rid}', actor=actor)
+    try:
+        conn.execute('BEGIN')
+        if tbl is None:
+            conn.execute('INSERT INTO docs (collection, id, data, created_at) VALUES (?,?,?,?)',
+                         (ent, rid, json.dumps(data, ensure_ascii=False), now_iso()))
+        else:
+            row = _row_from_snapshot(conn, tbl, data)
+            cols = ','.join(row.keys())
+            conn.execute(f"INSERT INTO {tbl} ({cols}) VALUES ({','.join('?' * len(row))})",
+                         list(row.values()))
+            if tbl == 'purchases':
+                for li in (data.get('line_items') or []):
+                    li = dict(li); li['purchase_id'] = rid; li.pop('id', None)
+                    lrow = _row_from_snapshot(conn, 'purchase_items', li)
+                    lcols = ','.join(lrow.keys())
+                    conn.execute(f"INSERT INTO purchase_items ({lcols}) VALUES ({','.join('?' * len(lrow))})",
+                                 list(lrow.values()))
+        db.log_audit(conn, actor, 'restore', ent, rid, after=data,
+                     note=f'بازگردانی از سطل بازیافت (حذف‌شده در {rec["ts"][:16]} توسط {rec["actor"]})')
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return {'ok': False, 'error': f'بازگرداندن ناموفق بود: {e}'}
+    if ent == 'purchases' and data.get('req_number'):
+        try:
+            recompute_request_status(conn, data['req_number']); conn.commit()
+        except Exception:
+            pass
+    return {'ok': True, 'entity': ent, 'id': rid,
+            'items': len(data.get('line_items') or []) if ent == 'purchases' else 0}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# [v126] تشخیص ثبت تکراری خرید
+#
+# چرا لازم است: سیستم هیچ کنترلی روی ثبت دوباره نداشت. اگر کاربر روی
+# دکمه ذخیره دوبار می‌زد، یا صفحه را رفرش و دوباره ثبت می‌کرد، یا
+# اینترنت کند بود و فکر می‌کرد ثبت نشده، رکورد دوم ساخته می‌شد.
+# نتیجه: ۱۵ گروه تکراری با ۱۸ رکورد اضافه و حدود ۲۱ میلیارد ریال
+# اضافه‌شمارش در گزارش‌های پارتو و مالی.
+#
+# قانون: همان شماره درخواست + همان کد کالا + همان نام کالا = تکراری.
+# تامین‌کننده عمداً در کلید نیست؛ یک قلم از یک درخواست نباید دو بار
+# ثبت شود حتی اگر نام تامین‌کننده کمی متفاوت تایپ شده باشد.
+# ═══════════════════════════════════════════════════════════════════
+def _norm_item_text(s):
+    s = (s or '').replace('ي', 'ی').replace('ك', 'ک').replace('\u200c', '')
+    return ' '.join(str(s).split()).strip().lower()
+
+def find_duplicate_purchase(conn, purchase, line_items):
+    """اگر این خرید تکراری باشد، توضیح فارسی برمی‌گرداند؛ وگرنه None."""
+    req = str(purchase.get('req_number') or '').strip()
+    if not req:
+        return None      # خرید بدون شماره درخواست (هزینه متفرقه) کنترل نمی‌شود
+    incoming = []
+    for it in (line_items or []):
+        code = str(it.get('item_code') or '').strip()
+        name = _norm_item_text(it.get('item_name'))
+        if code or name:
+            incoming.append((code, name, it))
+    if not incoming:
+        return None
+    rows = conn.execute(
+        '''SELECT p.id, p.supplier, p.created_at, pi.item_code, pi.item_name,
+                  pi.qty, pi.unit_price
+           FROM purchases p JOIN purchase_items pi ON pi.purchase_id = p.id
+           WHERE p.req_number = ?''', (req,)).fetchall()
+    if not rows:
+        return None
+    index = {}
+    for r in rows:
+        index.setdefault((str(r['item_code'] or '').strip(),
+                          _norm_item_text(r['item_name'])), r)
+    for code, name, it in incoming:
+        hit = index.get((code, name))
+        if hit is None:
+            continue
+        try:
+            same_qty = float(str(it.get('qty') or 0).replace(',', '') or 0) == \
+                       float(str(hit['qty'] or 0).replace(',', '') or 0)
+        except (TypeError, ValueError):
+            same_qty = False
+        when = str(hit['created_at'] or '')[:16].replace('T', ' ')
+        detail = (f"کالای «{hit['item_name']}» برای درخواست {req} پیش‌تر در "
+                  f"خرید شماره {hit['id']} ثبت شده است"
+                  + (f" (تاریخ ثبت: {when})" if when else '') + '.')
+        if same_qty:
+            detail += ' تعداد هر دو یکسان است.'
+        else:
+            detail += f" تعداد قبلی: {hit['qty']} — تعداد جدید: {it.get('qty')}."
+        return {'id': hit['id'],
+                'message': 'این قلم قبلاً برای همین درخواست ثبت شده است',
+                'detail': detail}
+    return None
+
 
 def user_public_dict(row):
     d = dict(row)
@@ -216,7 +772,20 @@ def user_public_dict(row):
         'perm_log': json.loads(d.get('perm_log_json') or '[]'),
         'is_expert_listed': bool(d.get('is_expert_listed', 1)),
         'fiscal_year': d.get('fiscal_year', ''),
-        'unit': d.get('unit', 'بازرگانی و پشتیبانی')
+        'unit': d.get('unit', 'بازرگانی و پشتیبانی'),
+        # [v124] هشدار رمز ناامن قدیمی — برای نشان دادن نشان قرمز در صفحه کاربران
+        'password_legacy': password_is_weak_legacy(d.get('password'))
+    }
+
+
+# [v136] نسخهٔ سبک برای کاربران عادی: فقط چیزی که رابط کاربری واقعاً لازم دارد
+def user_listing_dict(row):
+    d = dict(row)
+    return {
+        'id': d['id'], 'name': d['name'], 'role': d['role'], 'title': d.get('title', ''),
+        'is_expert_listed': bool(d.get('is_expert_listed', 1)),
+        'unit': d.get('unit', 'بازرگانی و پشتیبانی'),
+        'fiscal_year': d.get('fiscal_year', ''),
     }
 
 # ---------------------------------------------------------------------------
@@ -313,18 +882,163 @@ def get_all_settings(conn):
 # تامین‌کننده: resolve-or-create بر اساس نام (برای سازگاری با ورودی‌های متنی قدیمی)
 # ---------------------------------------------------------------------------
 
-def resolve_or_create_supplier(conn, name, actor=None):
+def resolve_or_create_supplier(conn, name, actor=None, revive=False):
+    """شناسه تأمین‌کننده را برمی‌گرداند؛ اگر نبود می‌سازد.
+
+    [v118] اگر رکورد وجود دارد ولی غیرفعال شده (یعنی کاربر آن را حذف کرده)،
+    به‌طور پیش‌فرض دوباره فعال نمی‌شود. پیش از این هر ذخیره‌ی خرید، نام
+    حذف‌شده را دوباره زنده می‌کرد و کاربر می‌دید نامی که پاک کرده برگشته.
+    revive=True فقط جایی استفاده می‌شود که کاربر صریحاً نام را وارد کرده باشد.
+    """
     name = (name or '').strip()
     if not name:
         return None
-    row = conn.execute('SELECT id FROM suppliers WHERE name=?', (name,)).fetchone()
+    row = conn.execute('SELECT id, is_active FROM suppliers WHERE name=?', (name,)).fetchone()
     if row:
+        if revive and not row['is_active']:
+            conn.execute('UPDATE suppliers SET is_active=1, updated_at=? WHERE id=?',
+                         (now_iso(), row['id']))
+            db.log_audit(conn, actor, 'reactivate', 'suppliers', row['id'],
+                         note='دوباره فعال شد چون کاربر آن را در فرم وارد کرد')
+            conn.commit()
         return row['id']
     cur = conn.execute('INSERT INTO suppliers (name, is_active, created_at, updated_at) VALUES (?,1,?,?)',
                         (name, now_iso(), now_iso()))
     db.log_audit(conn, actor, 'create', 'suppliers', cur.lastrowid, after={'name': name})
     conn.commit()
     return cur.lastrowid
+
+# ---------------------------------------------------------------------------
+# ادغام واقعی تامین‌کنندگان (یک تراکنش واحد)
+#
+# پیش از این، ادغام در فرانت‌اند با ۱۰ درخواست جداگانه انجام می‌شد که برخی‌شان
+# روت نداشتند (۴۰۴) و خطایشان بی‌صدا بلعیده می‌شد؛ نتیجه این بود که ادغام فقط
+# در حافظه‌ی مرورگر می‌ماند و با اولین loadAll() نام‌های قدیمی برمی‌گشتند.
+# اینجا ادغام در خودِ داده ثبت می‌شود، پس دیگر برنمی‌گردد.
+# ---------------------------------------------------------------------------
+
+def _norm_sup_name(s):
+    """نرمال‌سازی نام برای مقایسه: یکسان‌سازی ی/ک، حذف نیم‌فاصله و فاصله‌های اضافه."""
+    s = (s or '').strip()
+    s = s.replace('ي', 'ی').replace('ك', 'ک').replace('ۀ', 'ه').replace('ة', 'ه')
+    s = s.replace('\u200c', ' ').replace('\u200f', ' ').replace('\u200e', ' ')
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
+    """همه‌ی ارجاع‌های aliases را به target تغییر می‌دهد.
+    dry_run=True فقط شمارش می‌کند و چیزی را تغییر نمی‌دهد (برای پیش‌نمایش).
+    خروجی: دیکشنری شمارش تغییرات به تفکیک بخش.
+    """
+    target = _norm_sup_name(target)
+    alias_set = {_norm_sup_name(a) for a in (aliases or [])}
+    alias_set.discard(target)
+    alias_set.discard('')
+    alias_set.discard('—')
+    if not target or target == '—' or not alias_set:
+        return {'error': 'نام مقصد یا فهرست ادغام نامعتبر است'}
+
+    stats = {'purchases': 0, 'purchase_items': 0, 'shipping_items': 0,
+             'supplier_payments': 0, 'docs': 0, 'suppliers_removed': 0,
+             'target': target, 'aliases': sorted(alias_set)}
+
+    def matches(v):
+        return _norm_sup_name(v) in alias_set
+
+    # اطمینان از وجود رکورد مقصد
+    trow = conn.execute('SELECT id FROM suppliers WHERE name=?', (target,)).fetchone()
+    if not trow and not dry_run:
+        cur = conn.execute(
+            'INSERT INTO suppliers (name, is_active, created_at, updated_at) VALUES (?,1,?,?)',
+            (target, now_iso(), now_iso()))
+        target_id = cur.lastrowid
+    else:
+        target_id = trow['id'] if trow else None
+
+    # ۱) purchases: هم ستون متنی، هم کلید عددی
+    for r in conn.execute('SELECT id, supplier FROM purchases').fetchall():
+        if matches(r['supplier']):
+            stats['purchases'] += 1
+            if not dry_run:
+                conn.execute('UPDATE purchases SET supplier=?, supplier_id=? WHERE id=?',
+                             (target, target_id, r['id']))
+
+    # ۲) purchase_items: نام تامین‌کننده داخل extra_json ردیف‌ها
+    for r in conn.execute('SELECT id, extra_json FROM purchase_items').fetchall():
+        try:
+            e = json.loads(r['extra_json'] or '{}')
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(e, dict) and matches(e.get('supplier')):
+            stats['purchase_items'] += 1
+            if not dry_run:
+                e['supplier'] = target
+                conn.execute('UPDATE purchase_items SET extra_json=? WHERE id=?',
+                             (json.dumps(e, ensure_ascii=False), r['id']))
+
+    # ۳) shipping_items — این بخش را فرانت‌اند اصلاً به‌روز نمی‌کرد
+    for r in conn.execute('SELECT id, supplier FROM shipping_items').fetchall():
+        if matches(r['supplier']):
+            stats['shipping_items'] += 1
+            if not dry_run:
+                conn.execute('UPDATE shipping_items SET supplier=? WHERE id=?', (target, r['id']))
+
+    # ۴) supplier_payments
+    for r in conn.execute('SELECT id, supplier FROM supplier_payments').fetchall():
+        if matches(r['supplier']):
+            stats['supplier_payments'] += 1
+            if not dry_run:
+                conn.execute('UPDATE supplier_payments SET supplier=?, supplier_id=? WHERE id=?',
+                             (target, target_id, r['id']))
+
+    # ۵) اسناد JSON: قراردادها، فاکتورها، و هر مجموعه‌ای که نام تامین‌کننده دارد
+    for coll in ('contracts', 'invoice_docs', 'contract_payments', 'returns',
+                 'manual_receipts', 'need_declarations'):
+        for r in conn.execute('SELECT id, data FROM docs WHERE collection=?', (coll,)).fetchall():
+            try:
+                d = json.loads(r['data'])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(d, dict):
+                continue
+            changed = False
+            for fld in ('supplier', 'party', 'seller', 'vendor'):
+                if matches(d.get(fld)):
+                    d[fld] = target
+                    changed = True
+            for it in (d.get('items') or []):
+                if isinstance(it, dict) and matches(it.get('supplier')):
+                    it['supplier'] = target
+                    changed = True
+            if changed:
+                stats['docs'] += 1
+                if not dry_run:
+                    conn.execute('UPDATE docs SET data=? WHERE collection=? AND id=?',
+                                 (json.dumps(d, ensure_ascii=False), coll, r['id']))
+
+    # ۶) حذف واقعی رکوردهای تکراری (نه صرفاً غیرفعال‌سازی)
+    #    سرفصل‌های هزینه هرگز حذف نمی‌شوند، حتی اگر در فهرست ادغام آمده باشند.
+    for r in conn.execute('SELECT id, name FROM suppliers').fetchall():
+        if is_protected_supplier(r['name']):
+            continue
+        if matches(r['name']) and r['id'] != target_id:
+            stats['suppliers_removed'] += 1
+            if not dry_run:
+                conn.execute('UPDATE purchases SET supplier_id=? WHERE supplier_id=?',
+                             (target_id, r['id']))
+                conn.execute('UPDATE supplier_payments SET supplier_id=? WHERE supplier_id=?',
+                             (target_id, r['id']))
+                conn.execute('DELETE FROM suppliers WHERE id=?', (r['id'],))
+
+    if not dry_run:
+        db.log_audit(conn, actor, 'merge', 'suppliers', target_id,
+                     before={'aliases': sorted(alias_set)},
+                     after={'target': target, 'stats': {k: v for k, v in stats.items()
+                                                        if isinstance(v, int)}},
+                     note='ادغام تامین‌کننده: ' + '، '.join(sorted(alias_set)) + ' ← ' + target)
+        conn.commit()
+    return stats
+
 
 # ---------------------------------------------------------------------------
 # منطق کسب‌وکار: اثر ارسال روی ردیف‌های خرید و بازمحاسبه وضعیت درخواست
@@ -385,23 +1099,101 @@ def recompute_request_status(conn, rn):
 # HTTP Handler
 # ---------------------------------------------------------------------------
 
+# [v135] تنها مسیرهای GET که بدون ورود به سیستم مجازند (صفحهٔ ورود به آن‌ها نیاز دارد)
+GET_PUBLIC_PATHS = {'/api/me', '/api/ping'}
+
+# [v135] اگر True باشد فقط رایانه‌های شبکهٔ داخلی می‌توانند وصل شوند
+ALLOW_ONLY_PRIVATE = os.environ.get('ALLOW_ONLY_PRIVATE', '1') != '0'
+
+# [v134] فقط مبدأهای محلی/شبکهٔ داخلی مجازند؛ هر سایت اینترنتی بلاک می‌شود
+def is_allowed_origin(origin):
+    try:
+        u = urlparse(origin)
+    except Exception:
+        return False
+    if u.scheme not in ('http', 'https'):
+        return False
+    h = (u.hostname or '').lower()
+    if h in ('localhost', '127.0.0.1', '::1'):
+        return True
+    parts = h.split('.')
+    if len(parts) == 4 and all(x.isdigit() and 0 <= int(x) <= 255 for x in parts):
+        a, b = int(parts[0]), int(parts[1])
+        return a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
+    return False
+
+# [v135] آیا این نشانی IP متعلق به همین رایانه یا شبکهٔ داخلی است؟
+def is_private_ip(ip):
+    ip = (ip or '').strip().lower()
+    if ip.startswith('::ffff:'):
+        ip = ip[7:]
+    if ip in ('127.0.0.1', '::1', 'localhost'):
+        return True
+    parts = ip.split('.')
+    if len(parts) == 4 and all(x.isdigit() and 0 <= int(x) <= 255 for x in parts):
+        a, b = int(parts[0]), int(parts[1])
+        if a == 127 or a == 10:
+            return True
+        if a == 172 and 16 <= b <= 31:
+            return True
+        if a == 192 and b == 168:
+            return True
+        if a == 169 and b == 254:
+            return True
+        return False
+    return ip.startswith('fe80:') or ip.startswith('fc') or ip.startswith('fd')
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): pass
+
+    # [v135] درخواست از بیرون شبکهٔ داخلی اصلاً پردازش نمی‌شود
+    def handle_one_request(self):
+        ip = self.client_address[0] if self.client_address else ''
+        if ALLOW_ONLY_PRIVATE and not is_private_ip(ip):
+            try:
+                self.raw_requestline = self.rfile.readline(65537)
+                if not self.raw_requestline:
+                    self.close_connection = True
+                    return
+                self.send_response(403)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+            except Exception:
+                pass
+            self.close_connection = True
+            return
+        return BaseHTTPRequestHandler.handle_one_request(self)
+
+    # [v134] CORS بسته شد: فقط مبدأهای شبکهٔ داخلی مجاز‌اند (نه wildcard)
+    def send_security_headers(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        origin = (self.headers.get('Origin') or '').strip()
+        if not origin:
+            return          # هم‌مبدأ یا ابزار داخلی: هدر CORS لازم نیست
+        if is_allowed_origin(origin):
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Access-Control-Allow-Credentials', 'true')
+            self.send_header('Vary', 'Origin')
 
     def send_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_security_headers()
         self.send_header('Content-Length', len(body))
         self.end_headers()
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_response(204)
+        self.send_security_headers()
+        self.send_header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.send_header('Access-Control-Max-Age', '600')
+        self.send_header('Content-Length', '0')
         self.end_headers()
 
     def get_body(self):
@@ -438,16 +1230,119 @@ class Handler(BaseHTTPRequestHandler):
         if session_user['role'] == 'admin':
             return True
         perms = json.loads(session_user['perms_json'] or '{}')
-        if session_user['role'] == 'manager':
-            if perm == 'manage_users':
-                return bool(perms.get('manage_users', False))
-            return True
+        # [v127] پیش از این، نقش «مدیر» بدون توجه به تیک‌ها True برمی‌گرداند.
+        # یعنی صفحه دسترسی برای مدیر فقط منو را مخفی می‌کرد و در سرور همه‌چیز
+        # باز بود؛ هر کاربر مدیر می‌توانست از راه API هر کاری بکند.
+        # حالا تیک‌ها واقعا اعمال می‌شوند. پیش از فعال‌سازی، اسکریپت
+        # «تنظیم_دسترسی_مدیران.py» تیک‌های مدیران موجود را با دسترسی فعلی‌شان
+        # برابر می‌کند تا کسی چیزی از دست ندهد.
         if perms.get('readonly') and perm not in ('view_financial', 'view_reports', 'export_excel', 'view_all_purchases'):
             return False
         return bool(perms.get(perm, False))
 
+    # ── مالی: دامنه‌ی دید واقعی در سمت سرور ─────────────────────────────
+    # [v120] پیش از این مجوز view_financial فقط منو را مخفی می‌کرد و همه‌ی
+    # مبالغ (پرداخت‌ها، قراردادها، فاکتورها) برای هر کاربر واردشده ارسال می‌شد.
+    # حالا داده‌ی مالی دیگران اصلاً از سرور خارج نمی‌شود.
+    def fin_can_view(self, session_user):
+        """آیا اصلاً اجازه‌ی دیدن اعداد مالی را دارد؟"""
+        if session_user is None:
+            return False
+        if session_user['role'] == 'admin':
+            return True
+        return self.session_can(session_user, 'view_financial')
+
+    def fin_can_view_all(self, session_user):
+        """آیا مالی همه را می‌بیند یا فقط مالِ خودش؟"""
+        if session_user is None:
+            return False
+        if session_user['role'] == 'admin':
+            return True
+        return (self.session_can(session_user, 'view_all') or
+                self.session_can(session_user, 'view_all_purchases'))
+
+    def invoice_can_view_all(self, session_user):
+        """[v131] آیا این کاربر همهٔ اسناد تحویل مدارک را می‌بیند؟
+        تجمیع‌کنندهٔ مدارک (ساریخانی) باید همه را ببیند تا بتواند یک‌جا به
+        واحد مالی تحویل دهد؛ ولی این به‌معنای دسترسی به کل داده‌های مالی نیست."""
+        if session_user is None:
+            return False
+        if self.fin_can_view_all(session_user):
+            return True
+        return self.session_can(session_user, 'invoice_docs_view_all')
+
+    def fin_owns(self, rec, session_user):
+        """آیا این رکورد متعلق به همین کاربر است؟"""
+        if session_user is None or not isinstance(rec, dict):
+            return False
+        me = _norm_sup_name(session_user['name'])
+        if not me:
+            return False
+        for f in ('expert', 'created_by', 'owner', 'requester', 'actor'):
+            if _norm_sup_name(rec.get(f)) == me:
+                return True
+        return False
+
+    def fin_my_purchase_ids(self, conn, session_user):
+        """شناسه و شماره‌ی خریدهایی که این کاربر کارشناسشان است."""
+        if session_user is None:
+            return set(), set()
+        me = _norm_sup_name(session_user['name'])
+        ids, reqs = set(), set()
+        for r in conn.execute('SELECT id, req_number, expert FROM purchases'):
+            if _norm_sup_name(r['expert']) == me:
+                ids.add(r['id'])
+                if r['req_number']:
+                    reqs.add(str(r['req_number']))
+        return ids, reqs
+
     def is_manager(self, session_user):
         return session_user is not None and session_user['role'] in ('admin', 'manager')
+
+    # ── تنخواه: کنترل واقعی دسترسی در سمت سرور ──────────────────────────
+    def petty_can_view_all(self, session_user):
+        """آیا این کاربر مجاز است صورت‌های تنخواه همه را ببیند؟"""
+        if session_user is None:
+            return False
+        if session_user['role'] == 'admin':
+            return True
+        return (self.session_can(session_user, 'petty_view_all') or
+                self.session_can(session_user, 'manage_petty_cash'))
+
+    def petty_owns(self, doc, session_user):
+        """آیا این رکورد تنخواه متعلق به همین کاربر است؟"""
+        if session_user is None or not isinstance(doc, dict):
+            return False
+        me = (session_user['name'] or '').strip()
+        for f in PETTY_OWNER_FIELDS:
+            if (str(doc.get(f) or '').strip()) == me:
+                return True
+        return False
+
+    def petty_filter_docs(self, docs, session_user):
+        """اعمال دامنه‌ی دید: اگر کاربر مجوز «مشاهده همه» ندارد، فقط رکوردهای خودش.
+        این فیلتر در سرور اعمال می‌شود، نه در مرورگر — یعنی داده‌ی دیگران اصلاً
+        از سرور خارج نمی‌شود."""
+        if self.petty_can_view_all(session_user):
+            return docs
+        return [d for d in docs if self.petty_owns(d, session_user)]
+
+    def petty_deposit_field_guard(self, body, session_user):
+        """بررسی می‌کند کاربر فقط فیلدهایی را تغییر دهد که مجوزش را دارد.
+        اگر فیلدی خارج از اختیارش باشد، نام آن برگردانده می‌شود."""
+        if session_user is None:
+            return ['(بدون نشست)']
+        # [v127] دسترسی کامل به فیلدهای واریز از مجوز می‌آید، نه از نقش
+        if session_user['role'] == 'admin' or self.petty_can_view_all(session_user):
+            return []
+        denied = []
+        for perm, fields in PETTY_DEPOSIT_FIELD_PERM.items():
+            if self.session_can(session_user, perm):
+                continue
+            for f in fields:
+                if f in body:
+                    denied.append(f)
+        return denied
 
     def do_GET(self):
         p = urlparse(self.path)
@@ -469,26 +1364,60 @@ class Handler(BaseHTTPRequestHandler):
 
         conn = db.get_conn()
         try:
+            # [v135] دروازهٔ مرکزی: هیچ مسیر داده‌ای بدون ورود به سیستم پاسخ نمی‌دهد.
+            # پیش از این ۲۷ مسیر (از جمله users و audit_log و settings) باز بودند.
+            if path not in GET_PUBLIC_PATHS:
+                if self.get_session_user(conn) is None:
+                    self.send_json({'ok': False,
+                                    'error': 'لطفاً دوباره وارد شوید (نشست منقضی شده)'}, status=401)
+                    return
             if path == '/api/me':
                 su = self.get_session_user(conn)
                 if su is None:
                     self.send_json({'ok': False}, status=401)
                 else:
-                    self.send_json({'ok': True, 'user': user_public_dict(su)})
+                    self.send_json({'ok': True, 'user': user_public_dict(su),
+                                    'net_locked': bool(ALLOW_ONLY_PRIVATE)})
+            elif path == '/api/trash':
+                # [v124] سطل بازیافت — فهرست حذف‌شده‌های ۳۰ روز اخیر
+                _su = self.get_session_user(conn)
+                if not self.require(_su, self.session_can(_su, 'manage_backup')): return
+                self.send_json({'ok': True, 'days': TRASH_DAYS, 'rows': trash_list(conn)})
+            elif path == '/api/backups':
+                # [v124] فهرست نسخه‌های پشتیبان + زمان آخرین نسخه
+                _su = self.get_session_user(conn)
+                if not self.require(_su, self.session_can(_su, 'manage_backup')): return
+                lst = backup_list()
+                self.send_json({'ok': True, 'every_hours': BACKUP_EVERY_HOURS,
+                                'last': lst[0] if lst else None, 'rows': lst})
             elif path == '/api/items':
                 self.send_json(get_docs(conn, 'items'))
             elif path == '/api/requests':
                 rows = conn.execute('SELECT * FROM requests ORDER BY id').fetchall()
                 self.send_json([request_row_to_dict(r) for r in rows])
             elif path == '/api/purchases':
+                _su = self.get_session_user(conn)
                 rows = conn.execute('SELECT * FROM purchases ORDER BY id').fetchall()
-                self.send_json([purchase_row_to_dict(conn, r) for r in rows])
+                out = [purchase_row_to_dict(conn, r) for r in rows]
+                if not self.fin_can_view_all(_su):
+                    # فقط خریدهای خودِ کاربر (ردیف‌های دیگران اصلاً ارسال نمی‌شوند)
+                    out = [p for p in out if self.fin_owns(p, _su)]
+                if not self.fin_can_view(_su):
+                    out = [strip_financial_fields(p) for p in out]
+                self.send_json(out)
             elif path == '/api/shippings':
                 rows = conn.execute('SELECT * FROM shippings ORDER BY id').fetchall()
                 self.send_json([shipping_row_to_dict(conn, r) for r in rows])
             elif path == '/api/sales':
-                rows = conn.execute('SELECT * FROM sales ORDER BY id').fetchall()
-                self.send_json([sale_row_to_dict(conn, r) for r in rows])
+                _su = self.get_session_user(conn)
+                if not self.fin_can_view(_su):
+                    self.send_json([])
+                else:
+                    rows = conn.execute('SELECT * FROM sales ORDER BY id').fetchall()
+                    out = [sale_row_to_dict(conn, r) for r in rows]
+                    if not self.fin_can_view_all(_su):
+                        out = [x for x in out if self.fin_owns(x, _su)]
+                    self.send_json(out)
             elif path == '/api/sales_returns':
                 rows = conn.execute('SELECT * FROM sales_returns ORDER BY id').fetchall()
                 self.send_json([salesreturn_row_to_dict(conn, r) for r in rows])
@@ -500,14 +1429,29 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/suppliers':
                 # سازگاری کامل با فرانت‌اند فعلی: فقط آرایه نام (رشته) — همان قرارداد نسخه قبل.
                 # برای پروفایل کامل از /api/supplier_profiles استفاده می‌شود.
-                rows = conn.execute('SELECT name FROM suppliers ORDER BY name').fetchall()
+                # [v117] فقط تأمین‌کنندگان فعال. پیش از این غیرفعال‌ها هم برمی‌گشتند
+                # و به همین دلیل نامی که حذف می‌شد، همان لحظه دوباره در فهرست ظاهر می‌شد.
+                rows = conn.execute(
+                    'SELECT name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY name').fetchall()
                 self.send_json([r['name'] for r in rows])
             elif path == '/api/supplier_profiles':
                 rows = conn.execute('SELECT * FROM suppliers ORDER BY name').fetchall()
                 self.send_json([supplier_row_to_dict(r) for r in rows])
             elif path == '/api/supplier_payments':
-                rows = conn.execute('SELECT * FROM supplier_payments ORDER BY id').fetchall()
-                self.send_json([dict(r) for r in rows])
+                _su = self.get_session_user(conn)
+                if not self.fin_can_view(_su):
+                    self.send_json([])          # بدون مجوز مالی: هیچ عددی ارسال نمی‌شود
+                elif self.fin_can_view_all(_su):
+                    self.send_json([dict(r) for r in
+                                    conn.execute('SELECT * FROM supplier_payments ORDER BY id')])
+                else:
+                    _ids, _ = self.fin_my_purchase_ids(conn, _su)
+                    out = []
+                    for r in conn.execute('SELECT * FROM supplier_payments ORDER BY id'):
+                        d = dict(r)
+                        if d.get('purchase_id') in _ids or self.fin_owns(d, _su):
+                            out.append(d)
+                    self.send_json(out)
             elif path == '/api/reasons':
                 self.send_json(get_simple_list(conn, 'non_fulfillment_reasons'))
             elif path == '/api/transport_types':
@@ -523,7 +1467,14 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/contract_types':
                 self.send_json(get_simple_list(conn, 'contract_types'))
             elif path == '/api/contracts':
-                self.send_json(get_docs(conn, 'contracts'))
+                _su = self.get_session_user(conn)
+                _d = get_docs(conn, 'contracts')
+                if not self.fin_can_view(_su):
+                    self.send_json([])
+                elif self.fin_can_view_all(_su):
+                    self.send_json(_d)
+                else:
+                    self.send_json([x for x in _d if self.fin_owns(x, _su)])
             elif path == '/api/contract_payments':
                 self.send_json(get_docs(conn, 'contract_payments'))
             elif path == '/api/returns':
@@ -535,7 +1486,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/need_declarations':
                 self.send_json(get_docs(conn, 'need_declarations'))
             elif path == '/api/petty_cash':
-                self.send_json(get_docs(conn, 'petty_cash'))
+                # دامنه‌ی دید در سرور اعمال می‌شود: بدون مجوز «مشاهده همه»،
+                # فقط صورت‌های خودِ کاربر ارسال می‌شوند.
+                self.send_json(self.petty_filter_docs(
+                    get_docs(conn, 'petty_cash'), self.get_session_user(conn)))
             elif path == '/api/petty_holders':
                 self.send_json(get_simple_list(conn, 'petty_holders'))
             elif path == '/api/car_models':
@@ -543,21 +1497,47 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/petty_card_persons':
                 self.send_json(get_simple_list(conn, 'petty_card_persons'))
             elif path == '/api/petty_deposits':
-                self.send_json(get_docs(conn, 'petty_deposits'))
+                _su = self.get_session_user(conn)
+                if not (self.petty_can_view_all(_su) or
+                        self.session_can(_su, 'petty_deposit_view')):
+                    self.send_json(self.petty_filter_docs(
+                        get_docs(conn, 'petty_deposits'), _su))
+                else:
+                    self.send_json(get_docs(conn, 'petty_deposits'))
             elif path == '/api/ship_queue':
                 self.send_json(get_docs(conn, 'ship_queue'))
             elif path == '/api/petty_charges':
-                self.send_json(get_docs(conn, 'petty_charges'))
+                self.send_json(self.petty_filter_docs(
+                    get_docs(conn, 'petty_charges'), self.get_session_user(conn)))
             elif path == '/api/manual_receipts':
                 self.send_json(get_docs(conn, 'manual_receipts'))
             elif path == '/api/invoice_docs':
-                self.send_json(get_docs(conn, 'invoice_docs'))
+                _su = self.get_session_user(conn)
+                _d = get_docs(conn, 'invoice_docs')
+                if not self.fin_can_view(_su):
+                    self.send_json([])
+                elif self.invoice_can_view_all(_su):     # [v131]
+                    self.send_json(_d)
+                else:
+                    self.send_json([x for x in _d if self.fin_owns(x, _su)])
             elif path == '/api/settings':
                 self.send_json(get_all_settings(conn))
             elif path == '/api/users':
+                # [v136] کاربر عادی فقط نام/سمت را می‌بیند (برای فهرست‌های کشویی).
+                # مجوزها، گزارش تغییر مجوز و وضعیت رمز فقط برای مدیر کاربران.
+                _su = self.get_session_user(conn)
+                _full = (_su is not None and (_su['role'] == 'admin'
+                         or self.session_can(_su, 'manage_users')))
                 rows = conn.execute('SELECT * FROM users ORDER BY id').fetchall()
-                self.send_json([user_public_dict(r) for r in rows])
+                if _full:
+                    self.send_json([user_public_dict(r) for r in rows])
+                else:
+                    self.send_json([user_listing_dict(r) for r in rows])
             elif path == '/api/audit_log':
+                # [v136] رویدادنامه فقط برای دارندگان مجوز؛ پیش از این هر کاربری
+                # می‌توانست کل تاریخچهٔ عملیات شرکت را بخواند.
+                _su = self.get_session_user(conn)
+                if not self.require(_su, self.session_can(_su, 'page_audit_log')): return
                 q = 'SELECT * FROM audit_log'
                 args = []
                 conds = []
@@ -583,12 +1563,45 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
 
     def send_all(self, conn):
+        # کاربر جاری برای اعمال دامنه‌ی دید روی مجموعه‌های تنخواه
+        _su = self.get_session_user(conn)
         requests_ = [request_row_to_dict(r) for r in conn.execute('SELECT * FROM requests ORDER BY id')]
         purchases_ = [purchase_row_to_dict(conn, r) for r in conn.execute('SELECT * FROM purchases ORDER BY id')]
         shippings_ = [shipping_row_to_dict(conn, r) for r in conn.execute('SELECT * FROM shippings ORDER BY id')]
         sales_ = [sale_row_to_dict(conn, r) for r in conn.execute('SELECT * FROM sales ORDER BY id')]
         sales_returns_ = [salesreturn_row_to_dict(conn, r) for r in conn.execute('SELECT * FROM sales_returns ORDER BY id')]
-        suppliers_names = [r['name'] for r in conn.execute('SELECT name FROM suppliers ORDER BY name')]
+
+        # [v120] اعمال دامنه‌ی دید مالی روی پاسخ یکجا (/api/all).
+        # این مسیر لحظه‌ی ورود صدا زده می‌شود و پیش از این کل داده‌ی مالی شرکت
+        # را برای هر کاربری می‌فرستاد — حتی کسی که مجوز مالی نداشت.
+        _fin_all = self.fin_can_view_all(_su)
+        _fin_any = self.fin_can_view(_su)
+        if not _fin_all:
+            purchases_ = [p for p in purchases_ if self.fin_owns(p, _su)]
+            sales_ = [x for x in sales_ if self.fin_owns(x, _su)]
+        if not _fin_any:
+            purchases_ = [strip_financial_fields(p) for p in purchases_]
+            sales_ = []
+            sales_returns_ = []
+        _my_pids, _ = self.fin_my_purchase_ids(conn, _su)
+
+        def _fin_docs(coll):
+            d = get_docs(conn, coll)
+            if not _fin_any:
+                return []
+            if _fin_all:
+                return d
+            return [x for x in d if self.fin_owns(x, _su)]
+
+        def _fin_pays():
+            rows = [dict(r) for r in conn.execute('SELECT * FROM supplier_payments ORDER BY id')]
+            if not _fin_any:
+                return []
+            if _fin_all:
+                return rows
+            return [r for r in rows if r.get('purchase_id') in _my_pids or self.fin_owns(r, _su)]
+        suppliers_names = [r['name'] for r in conn.execute(
+            'SELECT name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY name')]
         suppliers_full = [supplier_row_to_dict(r) for r in conn.execute('SELECT * FROM suppliers ORDER BY name')]
         users_ = [user_public_dict(r) for r in conn.execute('SELECT * FROM users ORDER BY id')]
         destinations_ = [dict(r) for r in conn.execute('SELECT * FROM destinations ORDER BY id')]
@@ -597,7 +1610,7 @@ class Handler(BaseHTTPRequestHandler):
             'shippings': shippings_, 'sales': sales_, 'sales_returns': sales_returns_,
             'units': get_simple_list(conn, 'units'), 'destinations': destinations_,
             'suppliers': suppliers_names, 'supplier_profiles': suppliers_full,
-            'supplier_payments': [dict(r) for r in conn.execute('SELECT * FROM supplier_payments ORDER BY id')],
+            'supplier_payments': _fin_pays(),
             'reasons': get_simple_list(conn, 'non_fulfillment_reasons'),
             'transport_types': get_simple_list(conn, 'transport_types'),
             'ship_statuses': get_simple_list(conn, 'ship_statuses'),
@@ -605,19 +1618,32 @@ class Handler(BaseHTTPRequestHandler):
             'requester_units': get_simple_list(conn, 'requester_units'),
             'locations': get_simple_list(conn, 'locations'),
             'contract_types': get_simple_list(conn, 'contract_types'),
-            'contracts': get_docs(conn, 'contracts'), 'contract_payments': get_docs(conn, 'contract_payments'),
+            'contracts': _fin_docs('contracts'), 'contract_payments': _fin_docs('contract_payments'),
             'settings': get_all_settings(conn),
             'returns': get_docs(conn, 'returns'), 'return_reasons': get_simple_list(conn, 'return_reasons'),
             'supply_plans': get_docs(conn, 'supply_plans'),
             'need_declarations': get_docs(conn, 'need_declarations'),
-            'petty_cash': get_docs(conn, 'petty_cash'), 'petty_holders': get_simple_list(conn, 'petty_holders'),
+            'nf_records': get_docs(conn, 'nf_records'),   # [v125] بایگانی عدم تحقق
+            # [v125] petty_tracking در جدول settings ذخیره می‌شود ولی فرانت آن را
+            # در سطح بالا (D.petty_tracking) می‌خواند. پیش‌تر ارسال نمی‌شد و
+            # همیشه خالی می‌ماند؛ داده‌اش فقط از نسخه سخت‌کد می‌آمد.
+            'petty_tracking': get_setting(conn, 'petty_tracking', []),
+            'inquiry_three_page': get_setting(conn, 'inquiry_three_page', []),  # [v125]
+            'petty_cash': self.petty_filter_docs(get_docs(conn, 'petty_cash'), _su),
+            'petty_holders': get_simple_list(conn, 'petty_holders'),
             'car_models': get_simple_list(conn, 'car_models'),
             'petty_card_persons': get_simple_list(conn, 'petty_card_persons'),
-            'petty_deposits': get_docs(conn, 'petty_deposits'),
-            'petty_charges': get_docs(conn, 'petty_charges'),
+            'petty_deposits': (get_docs(conn, 'petty_deposits')
+                               if (self.petty_can_view_all(_su) or
+                                   self.session_can(_su, 'petty_deposit_view'))
+                               else self.petty_filter_docs(get_docs(conn, 'petty_deposits'), _su)),
+            'petty_charges': self.petty_filter_docs(get_docs(conn, 'petty_charges'), _su),
             'petty_fund': get_setting(conn, 'petty_fund', {'manager': 'زارع', 'total': 0, 'year': '', 'note': ''}),
             'manual_receipts': get_docs(conn, 'manual_receipts'),
-            'invoice_docs': get_docs(conn, 'invoice_docs'),
+            # [v131] تجمیع‌کنندهٔ مدارک همهٔ اسناد را می‌بیند
+            'invoice_docs': (get_docs(conn, 'invoice_docs')
+                             if (_fin_any and self.invoice_can_view_all(_su))
+                             else _fin_docs('invoice_docs')),
             'ship_queue': get_docs(conn, 'ship_queue'),
             'users': users_
         })
@@ -678,13 +1704,41 @@ class Handler(BaseHTTPRequestHandler):
         parts = path.lstrip('/').split('/')
 
         if path == '/api/login':
-            pw = h(body.get('password', ''))
-            u = conn.execute('SELECT * FROM users WHERE name=? AND password=?', (body.get('username'), pw)).fetchone()
-            if u:
+            uname = (body.get('username') or '').strip()
+            raw_pw = body.get('password', '')
+
+            # [v124] قفل موقت بعد از تلاش‌های ناموفق پیاپی
+            wait = login_locked_for(uname)
+            if wait:
+                self.send_json({'ok': False, 'locked': True,
+                                'error': f'به دلیل {LOGIN_MAX_ATTEMPTS} تلاش ناموفق، ورود این کاربر '
+                                         f'{wait // 60 + 1} دقیقه قفل شده است.'})
+                return
+
+            u = conn.execute('SELECT * FROM users WHERE name=?', (uname,)).fetchone()
+            ok, needs_upgrade = (False, False)
+            if u is not None:
+                ok, needs_upgrade = verify_password(raw_pw, u['password'])
+
+            if ok:
+                login_note_success(uname)
+                # مهاجرت نرم: رمز درست بود ولی با فرمت ناامن قدیمی ذخیره شده
+                if needs_upgrade:
+                    conn.execute('UPDATE users SET password=? WHERE id=?',
+                                 (hash_password(raw_pw), u['id']))
+                    conn.commit()
+                    db.log_audit(conn, uname, 'update', 'users', u['id'],
+                                 note='ارتقای خودکار رمز به فرمت امن PBKDF2')
+                    conn.commit()
                 token = db.create_session(conn, u['id'])
-                self.send_json({'ok': True, 'user': user_public_dict(u), 'token': token})
+                self.send_json({'ok': True, 'user': user_public_dict(u), 'token': token,
+                                'password_weak': bool(password_problems(raw_pw, uname))})
             else:
-                self.send_json({'ok': False, 'error': 'نام کاربری یا رمز عبور اشتباه است'})
+                left = login_note_failure(uname)
+                msg = 'نام کاربری یا رمز عبور اشتباه است'
+                if 0 < left <= 2:
+                    msg += f' — {left} تلاش دیگر باقی مانده، سپس حساب موقتاً قفل می‌شود'
+                self.send_json({'ok': False, 'error': msg})
             return
 
         if path == '/api/logout':
@@ -694,8 +1748,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'ok': True})
             return
 
+        if path == '/api/audit_log':
+            # [v136] رویدادهای امنیتی رابط کاربری تا امروز به ۴۰۴ می‌خوردند و
+            # بی‌صدا دور ریخته می‌شدند. حالا واقعا ثبت می‌شوند. هویت ثبت‌کننده
+            # از روی نشست گرفته می‌شود، نه از بدنهٔ پیام.
+            if not self.require(session_user, True): return
+            db.log_audit(conn, session_user['name'],
+                         str(body.get('action') or 'security')[:60],
+                         str(body.get('entity') or 'system')[:60],
+                         str(body.get('entity_id') or ''),
+                         note=str(body.get('note') or '')[:500])
+            conn.commit()
+            self.send_json({'ok': True})
+            return
+
         if path == '/api/items':
-            if not self.require(session_user, self.is_manager(session_user)): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             item = dict(body); item.pop('_actor', None)
             item['id'] = next_doc_id(conn, 'items')
             conn.execute('INSERT INTO docs (collection, id, data, created_at) VALUES (?,?,?,?)',
@@ -704,7 +1772,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(item); return
 
         if path == '/api/items/bulk':
-            if not self.require(session_user, self.is_manager(session_user)): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             items = body.get('items', [])
             existing = get_docs(conn, 'items')
             code_index = {i.get('code'): i for i in existing if i.get('code')}
@@ -734,9 +1802,11 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require(session_user, True): return  # فقط نیاز به ورود؛ بخشی از فرم ثبت خرید است
             name = (body.get('value') or body.get('name') or body.get('supplier') or '').strip()
             if name:
-                resolve_or_create_supplier(conn, name, actor)
+                # کاربر صریحاً «افزودن» زده → اگر قبلاً حذف شده بود، دوباره فعال شود
+                resolve_or_create_supplier(conn, name, actor, revive=True)
                 conn.commit()
-            rows = conn.execute('SELECT name FROM suppliers ORDER BY name').fetchall()
+            rows = conn.execute(
+                'SELECT name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY name').fetchall()
             self.send_json([r['name'] for r in rows]); return
 
         # ---- تامین‌کننده: پروفایل کامل (صفحه مدیریت جدید) ----
@@ -803,26 +1873,74 @@ class Handler(BaseHTTPRequestHandler):
             DOC_CREATE_PERM = {
                 'contracts': 'create_contract', 'contract_payments': 'create_contract',
                 'supply_plans': 'create_supply_plan',
-                'petty_charges': 'create_petty_charge', 'petty_cash': 'create_petty_charge',
+                'petty_charges': 'create_petty_charge',      # شارژ = واریز پول (مالی)
+                'petty_cash': 'create_petty_statement',      # صورت تنخواه = هزینه‌ها (کارشناس)
                 'petty_deposits': 'petty_deposit_view',
+                'invoice_docs': 'invoice_docs_edit',         # [v140]
             }
             need_perm = DOC_CREATE_PERM.get(collection)
             if need_perm:
-                allowed = self.is_manager(session_user) or self.session_can(session_user, need_perm)
+                allowed = self.session_can(session_user, need_perm)
+                # [v114] مجوزهای هم‌ارز: بعضی مجوزهای «مدیریت/ویرایش» در صفحه‌ی کاربران
+                # نمایش داده می‌شوند ولی هم‌تای «ثبت» آن‌ها برچسب ندارد و قابل تیک‌زدن نیست.
+                # اگر کاربر مجوز مدیریت یا ویرایش همان بخش را دارد، ثبت هم مجاز است.
+                # (بدون این، کاربر می‌توانست ویرایش کند ولی رکورد جدید ثبت نکند.)
+                if not allowed:
+                    for alt in PERM_EQUIVALENT.get(need_perm, ()):
+                        if self.session_can(session_user, alt):
+                            allowed = True
+                            break
             else:
                 allowed = session_user is not None
             if not self.require(session_user, allowed): return
+            # کنترل فیلدی واریز تنخواه: هر نقش فقط فیلدهای خودش را تغییر دهد
+            if collection == 'petty_deposits':
+                denied = self.petty_deposit_field_guard(body, session_user)
+                if denied:
+                    self.send_json({'ok': False,
+                                    'error': 'برای تغییر این فیلدها دسترسی ندارید: ' + '، '.join(denied)},
+                                   403); return
             doc = create_doc(conn, collection, body, actor)
             self.send_json(doc); return
 
+        if path == '/api/merge_suppliers':
+            # ادغام واقعی تامین‌کنندگان در یک تراکنش.
+            # با preview=true فقط پیش‌نمایش می‌دهد و چیزی را تغییر نمی‌دهد.
+            allowed = (self.session_can(session_user, 'manage_suppliers') or
+                       self.session_can(session_user, 'edit_supplier'))
+            if not self.require(session_user, allowed): return
+            target = body.get('target') or body.get('targetName') or ''
+            aliases = body.get('aliases') or []
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            preview = bool(body.get('preview'))
+            try:
+                res = merge_suppliers_tx(conn, target, aliases, actor, dry_run=preview)
+            except Exception as e:
+                conn.rollback()
+                self.send_json({'ok': False, 'error': 'خطا در ادغام: ' + str(e)}, 500); return
+            if res.get('error'):
+                self.send_json({'ok': False, 'error': res['error']}, 400); return
+            res['ok'] = True
+            res['preview'] = preview
+            res['updated'] = (res['purchases'] + res['purchase_items'] +
+                              res['shipping_items'] + res['supplier_payments'] + res['docs'])
+            res['removed'] = res['suppliers_removed']
+            self.send_json(res); return
+
+        if path == '/api/settings':
+            # ذخیره‌ی یکجای تنظیمات (فرانت‌اند ابتدا PUT و سپس POST را امتحان می‌کند)
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
+            self.handle_settings_bulk(conn, body, actor); return
+
         if path.startswith('/api/settings/'):
-            if not self.require(session_user, self.is_manager(session_user)): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             self.handle_settings_post(conn, path, body); return
 
         if path == '/api/close_purchase':
             pid = body.get('id'); close = body.get('close', True); reason = body.get('reason', '')
             row = conn.execute('SELECT * FROM purchases WHERE id=?', (pid,)).fetchone()
-            allowed = self.is_manager(session_user) or \
+            allowed = self.session_can(session_user, 'edit_any_purchase') or \
                 (session_user is not None and row is not None and row['expert'] == session_user['name'])
             if not self.require(session_user, allowed): return
             if row:
@@ -838,7 +1956,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'ok': True}); return
 
         if path == '/api/petty_fund':
-            if not self.require(session_user, self.is_manager(session_user)): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             cur_fund = get_setting(conn, 'petty_fund', {'manager': 'زارع', 'total': 0, 'year': '', 'note': ''})
             cur_fund['manager'] = body.get('manager', cur_fund.get('manager', 'زارع'))
             cur_fund['total'] = body.get('total', cur_fund.get('total', 0))
@@ -871,6 +1989,18 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require(session_user, self.session_can(session_user, 'create_purchase')): return
             purchase = dict(body); purchase.pop('_actor', None)
             line_items = purchase.pop('line_items', [])
+            # [v126] نگهبان ثبت تکراری — پیش از این هیچ کنترلی نبود.
+            # نمونه واقعی: درخواست ۱۶۲۸۱، کارشناس احمدی، پنج بار «مواد ABS-70»
+            # را در فاصله ۱۰:۲۷ تا ۱۵:۰۶ همان روز ثبت کرد و سیستم هر پنج بار
+            # را پذیرفت → ۱۹.۹ میلیارد ریال اضافه‌شمارش در گزارش‌ها.
+            if not purchase.get('_force_duplicate'):
+                dup = find_duplicate_purchase(conn, purchase, line_items)
+                if dup:
+                    self.send_json({
+                        'ok': False, 'duplicate': True, 'existing_id': dup['id'],
+                        'error': dup['message'], 'detail': dup['detail']}, 409)
+                    return
+            purchase.pop('_force_duplicate', None)
             sup_name = (purchase.get('supplier') or '').strip()
             sup_id = resolve_or_create_supplier(conn, sup_name, actor) if sup_name else None
             # فرانت‌اند فعلی فیلدهای «inv_date» و «paid» را می‌فرستد (نه date/paid_amount)؛
@@ -1072,11 +2202,17 @@ class Handler(BaseHTTPRequestHandler):
             # فقط ادمین می‌تواند نقش admin بسازد؛ مدیر (غیرادمین) نمی‌تواند خودش/دیگری را ادمین کند
             if role == 'admin' and session_user['role'] != 'admin':
                 self.send_json({'ok': False, 'error': 'فقط ادمین می‌تواند کاربر با نقش ادمین بسازد'}, 403); return
+            # [v124] رمز ساده پذیرفته نمی‌شود
+            new_pw = body.get('password', '')
+            problems = password_problems(new_pw, body.get('name', ''))
+            if problems:
+                self.send_json({'ok': False, 'error': 'رمز عبور به‌اندازه کافی قوی نیست',
+                                'password_problems': problems}, 400); return
             perms = body.get('perms') if body.get('perms') is not None else default_perms(role)
             cur = conn.execute(
                 '''INSERT INTO users (name, role, title, password, is_expert_listed, unit, fiscal_year, perms_json, perm_log_json)
                    VALUES (?,?,?,?,?,?,?,?,?)''',
-                (body['name'], role, body.get('title', ''), h(body.get('password', '')),
+                (body['name'], role, body.get('title', ''), hash_password(new_pw),
                  1 if body.get('is_expert_listed', True) else 0, body.get('unit', 'بازرگانی و پشتیبانی'),
                  body.get('fiscal_year', ''), json.dumps(perms, ensure_ascii=False), '[]')
             )
@@ -1102,23 +2238,29 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == '/api/backup':
             if not self.require(session_user, self.session_can(session_user, 'manage_backup')): return
-            os.makedirs(BACKUP_DIR, exist_ok=True)
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            dest = os.path.join(BACKUP_DIR, f'mehr_{ts}.db')
-            import sqlite3 as _sqlite3
-            with _sqlite3.connect(dest) as bconn:
-                conn.backup(bconn)
-            backs = sorted(f for f in os.listdir(BACKUP_DIR) if f.startswith('mehr_'))
-            if len(backs) > 60:
-                for old in backs[:-60]:
-                    try: os.remove(os.path.join(BACKUP_DIR, old))
-                    except OSError: pass
-            self.send_json({'ok': True, 'size': os.path.getsize(dest)}); return
+            res = make_backup(reason=body.get('reason', 'دستی'), actor=actor)
+            self.send_json(res if res.get('ok') else res, 200 if res.get('ok') else 500); return
+
+        if path.startswith('/api/restore/'):
+            # [v124] بازگرداندن یک رکورد حذف‌شده از سطل بازیافت
+            if not self.require(session_user, self.session_can(session_user, 'manage_backup')): return
+            aid = path.rsplit('/', 1)[-1]
+            if not aid.isdigit():
+                self.send_json({'ok': False, 'error': 'شناسه نامعتبر'}, 400); return
+            res = trash_restore(conn, int(aid), actor)
+            self.send_json(res, 200 if res.get('ok') else 400); return
+
+        if path == '/api/password/check':
+            # [v124] بررسی زنده قدرت رمز، پیش از ذخیره
+            pw = body.get('password', '')
+            problems = password_problems(pw, body.get('username', ''))
+            self.send_json({'ok': not problems, 'problems': problems,
+                            'min_len': PASSWORD_MIN_LEN}); return
 
         self.send_json({'error': 'not found'}, 404)
 
     def handle_settings_post(self, conn, path, body):
-        key = path.split('/')[-1]
+        key = unquote(path.split('/')[-1])
         if key == 'signature':
             set_setting(conn, 'signature_b64', body.get('signature_b64', ''))
         elif key == 'approver_signature':
@@ -1137,7 +2279,41 @@ class Handler(BaseHTTPRequestHandler):
                 set_setting(conn, 'nf_descriptions', nfd)
         elif key == 'mrp_plan':
             set_setting(conn, 'mrp_plan', body.get('plan', {}) if isinstance(body.get('plan'), dict) else {})
+        elif key in GENERIC_SETTING_KEYS:
+            # کلیدهای عمومی تنظیمات: فرانت‌اند مقدار را زیر همین نام می‌فرستد.
+            # قبلاً این کلیدها به هیچ شاخه‌ای نمی‌خوردند و بی‌صدا دور ریخته می‌شدند.
+            if key in body:
+                value = body[key]
+            else:
+                # سازگاری: اگر فرانت کل شیء را بدون نام کلید فرستاده باشد
+                value = {k: v for k, v in body.items() if k != '_actor'} if isinstance(body, dict) else body
+            set_setting(conn, key, value)
+        else:
+            # هرگز برای کلید ناشناخته ok:True برنگردان — این دقیقاً همان اشتباهی بود که
+            # باعث شد ماه‌ها داده بی‌صدا گم شود و کسی متوجه نشود.
+            self.send_json({'ok': False, 'error': f'کلید تنظیمات ناشناخته است: {key}'}, 400)
+            return
         self.send_json({'ok': True})
+
+    def handle_settings_bulk(self, conn, body, actor):
+        """ذخیره‌ی یکجای مجموعه‌ای از تنظیمات (معادل PUT /api/settings در فرانت‌اند).
+        فقط کلیدهای مجاز نوشته می‌شوند؛ بقیه در پاسخ به‌عنوان skipped گزارش می‌شوند
+        تا هیچ داده‌ای بی‌سروصدا گم نشود."""
+        if not isinstance(body, dict):
+            self.send_json({'ok': False, 'error': 'بدنه‌ی نامعتبر'}, 400); return
+        saved, skipped = [], []
+        for k, v in body.items():
+            if k == '_actor':
+                continue
+            if k in ALLOWED_SETTING_KEYS:
+                set_setting(conn, k, v)
+                saved.append(k)
+            else:
+                skipped.append(k)
+        db.log_audit(conn, actor, 'update', 'settings', 0,
+                     note='ذخیره تنظیمات: ' + ', '.join(saved) + (' | نادیده: ' + ', '.join(skipped) if skipped else ''))
+        conn.commit()
+        self.send_json({'ok': True, 'saved': saved, 'skipped': skipped})
 
     # -----------------------------------------------------------------
     def do_PUT(self):
@@ -1154,6 +2330,11 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
 
     def handle_put(self, conn, parts, body, actor, session_user):
+        # PUT /api/settings  (دو بخشی) — پیش از این به دلیل شرط len(parts)==3 همیشه 404 می‌شد
+        # و فرانت‌اند بی‌آنکه بداند، تنظیمات را از دست می‌داد.
+        if parts[0] == 'api' and len(parts) == 2 and parts[1] == 'settings':
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
+            self.handle_settings_bulk(conn, body, actor); return
         if not (parts[0] == 'api' and len(parts) == 3):
             self.send_json({'error': 'not found'}, 404); return
         collection, rid = parts[1], parts[2]
@@ -1164,8 +2345,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({'error': 'not found'}, 404); return
             is_self = session_user is not None and str(session_user['id']) == str(rid)
             only_own_password = is_self and set(body.keys()) <= {'password', '_actor'}
-            allowed = only_own_password or self.is_manager(session_user) or \
-                self.session_can(session_user, 'manage_users')
+            # [v141] تنظیمات شخصی (سال مالی و مسیر اسکن) نیازی به مجوز مدیریت کاربران
+            # ندارد. پیش از این تغییر سال مالی برای کارشناس ۴۰۳ می‌گرفت و بی‌صدا
+            # ذخیره نمی‌شد.
+            only_own_prefs = is_self and set(body.keys()) <= {'fiscal_year', 'scan_path', '_actor'}
+            allowed = only_own_password or only_own_prefs or self.session_can(session_user, 'manage_users')
             if not self.require(session_user, allowed): return
             # فقط ادمین می‌تواند نقش کسی را به admin تغییر دهد یا نقش یک ادمین را تغییر دهد
             if 'role' in body and (body['role'] == 'admin' or u['role'] == 'admin') and \
@@ -1175,7 +2359,17 @@ class Handler(BaseHTTPRequestHandler):
             changes = []
             updates = {}
             if body.get('password'):
-                updates['password'] = h(body['password']); changes.append('تغییر رمز عبور')
+                # [v124] همان قانون رمز قوی هنگام تغییر رمز هم اعمال می‌شود
+                problems = password_problems(body['password'], u['name'])
+                if problems:
+                    self.send_json({'ok': False, 'error': 'رمز عبور به‌اندازه کافی قوی نیست',
+                                    'password_problems': problems}, 400); return
+                updates['password'] = hash_password(body['password']); changes.append('تغییر رمز عبور')
+            # [v141] مجوزها فقط با مجوز «مدیریت کاربران» قابل تغییرند. اگر کاربری
+            # بدون این مجوز، perms را در بدنه بفرستد (مثلاً چون رابط کاربری کل شیء
+            # را ارسال می‌کرد) نادیده گرفته می‌شود تا مجوزها تصادفی بازنویسی نشوند.
+            if 'perms' in body and not self.session_can(session_user, 'manage_users'):
+                body = {k: v for k, v in body.items() if k != 'perms'}
             if 'perms' in body:
                 old = json.loads(u['perms_json'] or '{}')
                 new = body['perms'] or {}
@@ -1205,8 +2399,7 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute('SELECT * FROM suppliers WHERE id=?', (rid,)).fetchone()
             if not row:
                 self.send_json({'error': 'not found'}, 404); return
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'edit_supplier')): return
+            if not self.require(session_user, self.session_can(session_user, 'edit_supplier')): return
             before = supplier_row_to_dict(row)
             fields = ['name', 'contact_person', 'phone', 'address', 'category', 'payment_terms',
                       'bank_account', 'rating', 'is_active', 'note']
@@ -1224,8 +2417,7 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute('SELECT * FROM purchases WHERE id=?', (rid,)).fetchone()
             if not row:
                 self.send_json({'error': 'not found'}, 404); return
-            allowed = self.is_manager(session_user) or \
-                (session_user is not None and row['expert'] == session_user['name']) or \
+            allowed = (session_user is not None and row['expert'] == session_user['name']) or \
                 self.session_can(session_user, 'edit_any_purchase')
             if not self.require(session_user, allowed): return
             before = purchase_row_to_dict(conn, row)
@@ -1269,11 +2461,27 @@ class Handler(BaseHTTPRequestHandler):
             if line_items is not None:
                 # حفظ ردیف‌های موجود (با line_id)، درج ردیف‌های جدید (بدون line_id)
                 existing_ids = {r['id'] for r in conn.execute('SELECT id FROM purchase_items WHERE purchase_id=?', (rid,))}
+                # [v113] نقشه‌ی کد کالا → شناسه ردیف، برای تطبیق وقتی فرانت line_id نمی‌فرستد.
+                # باگ قبلی: اگر line_id خالی بود، سرور کورکورانه INSERT می‌کرد و هر بار
+                # ویرایش یک نسخه‌ی تکراری از همان قلم می‌ساخت (ریشه‌ی «از هر ردیف دوتا»).
+                code_map = {}
+                for r_ in conn.execute(
+                        'SELECT id, item_code, item_name FROM purchase_items WHERE purchase_id=?', (rid,)):
+                    ck = (str(r_['item_code'] or '').strip(),
+                          ' '.join(str(r_['item_name'] or '').split()))
+                    code_map.setdefault(ck, r_['id'])
                 kept_ids = set()
                 for it in line_items:
                     it = dict(it)
                     lid = it.get('line_id')
                     li_extra = extras(it, KNOWN_LINEITEM)
+                    # اگر line_id نیامده بود، با کد کالا (و در نبود آن، با نام) تطبیق بده
+                    if not (lid and lid in existing_ids):
+                        ck = (str(it.get('item_code') or '').strip(),
+                              ' '.join(str(it.get('item_name') or '').split()))
+                        cand = code_map.get(ck)
+                        if cand and cand not in kept_ids:
+                            lid = cand
                     if lid and lid in existing_ids:
                         try:
                             up = float(it.get('unit_price') or 0)
@@ -1309,8 +2517,7 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute('SELECT * FROM sales WHERE id=?', (rid,)).fetchone()
             if not row:
                 self.send_json({'error': 'not found'}, 404); return
-            allowed = self.is_manager(session_user) or \
-                (session_user is not None and row['created_by'] == session_user['name']) or \
+            allowed = (session_user is not None and row['created_by'] == session_user['name']) or \
                 self.session_can(session_user, 'edit_sale')
             if not self.require(session_user, allowed): return
             before = sale_row_to_dict(conn, row)
@@ -1382,8 +2589,7 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute('SELECT * FROM shippings WHERE id=?', (rid,)).fetchone()
             if not row:
                 self.send_json({'error': 'not found'}, 404); return
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'edit_shipping')): return
+            if not self.require(session_user, self.session_can(session_user, 'edit_shipping')): return
             before = shipping_row_to_dict(conn, row)
             apply_shipping_to_lines(conn, before.get('items', []), sign=-1)
             new_items = body.get('items', before.get('items', []))
@@ -1431,8 +2637,7 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute('SELECT * FROM requests WHERE id=?', (rid,)).fetchone()
             if not row:
                 self.send_json({'error': 'not found'}, 404); return
-            allowed = self.is_manager(session_user) or \
-                (session_user is not None and row['expert'] == session_user['name']) or \
+            allowed = (session_user is not None and row['expert'] == session_user['name']) or \
                 self.session_can(session_user, 'edit_request') or \
                 self.session_can(session_user, 'assign_request')
             if not self.require(session_user, allowed): return
@@ -1458,7 +2663,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(dict(row) if row else {'error': 'not found'}); return
 
         if collection == 'items':
-            if not self.require(session_user, self.is_manager(session_user)): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             out = update_doc(conn, 'items', int(rid), body, actor)
             self.send_json(out if out else {'error': 'not found'}, 200 if out else 404); return
 
@@ -1466,13 +2671,32 @@ class Handler(BaseHTTPRequestHandler):
             target = DOC_PATHS[collection]
             DOC_EDIT_PERM = {'contracts': 'edit_contract', 'contract_payments': 'edit_contract',
                               'supply_plans': 'edit_supply_plan',
-                              'petty_charges': 'edit_petty_charge', 'petty_cash': 'edit_petty_charge'}
+                              'petty_charges': 'edit_petty_charge', 'petty_cash': 'edit_petty_statement',
+                              'invoice_docs': 'invoice_docs_edit'}   # [v140]
             need_perm = DOC_EDIT_PERM.get(target)
             if need_perm:
-                allowed = self.is_manager(session_user) or self.session_can(session_user, need_perm)
+                allowed = self.session_can(session_user, need_perm)
+                if not allowed:
+                    for alt in PERM_EQUIVALENT.get(need_perm, ()):
+                        if self.session_can(session_user, alt):
+                            allowed = True
+                            break
             else:
                 allowed = session_user is not None
             if not self.require(session_user, allowed): return
+            # کنترل فیلدی واریز تنخواه (همان قانون trackCanEdit، این بار در سرور)
+            if target == 'petty_deposits':
+                denied = self.petty_deposit_field_guard(body, session_user)
+                if denied:
+                    self.send_json({'ok': False,
+                                    'error': 'برای تغییر این فیلدها دسترسی ندارید: ' + '، '.join(denied)},
+                                   403); return
+            # دامنه‌ی دید: بدون مجوز «مشاهده همه»، فقط رکورد خودش قابل ویرایش است
+            if target in ('petty_cash', 'petty_charges') and not self.petty_can_view_all(session_user):
+                _existing = next((d for d in get_docs(conn, target) if str(d.get('id')) == str(rid)), None)
+                if _existing is not None and not self.petty_owns(_existing, session_user):
+                    self.send_json({'ok': False,
+                                    'error': 'این رکورد متعلق به شما نیست'}, 403); return
             out = update_doc(conn, target, int(rid), body, actor)
             self.send_json(out if out else {'error': 'not found'}, 200 if out else 404); return
 
@@ -1496,29 +2720,45 @@ class Handler(BaseHTTPRequestHandler):
         collection, rid = parts[1], parts[2]
 
         if collection in SIMPLE_LISTS:
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'manage_lists')): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             del_simple_list_value(conn, SIMPLE_LISTS[collection], rid)
             self.send_json({'ok': True}); return
 
         if collection == 'suppliers':
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'delete_supplier')): return
+            if not self.require(session_user, self.session_can(session_user, 'delete_supplier')): return
             row = None
             if rid.isdigit():
                 row = conn.execute('SELECT * FROM suppliers WHERE id=?', (rid,)).fetchone()
             if not row:
                 row = conn.execute('SELECT * FROM suppliers WHERE name=?', (rid,)).fetchone()
-            if row:
-                conn.execute('UPDATE suppliers SET is_active=0 WHERE id=?', (row['id'],))
-                db.log_audit(conn, actor, 'deactivate', 'suppliers', row['id'], before=supplier_row_to_dict(row))
+            if not row:
+                self.send_json({'ok': True, 'note': 'یافت نشد'}); return
+            # [v117] سرفصل‌های هزینه هرگز حذف نمی‌شوند
+            if is_protected_supplier(row['name']):
+                self.send_json({'ok': False,
+                                'error': 'این یک سرفصل هزینه است و قابل حذف نیست: ' + row['name']},
+                               400); return
+            used = supplier_usage_count(conn, row['id'], row['name'])
+            before = supplier_row_to_dict(row)
+            if used == 0:
+                # هیچ رکوردی به آن وصل نیست → حذف کامل، وگرنه دوباره در فهرست ظاهر می‌شود
+                conn.execute('DELETE FROM suppliers WHERE id=?', (row['id'],))
+                db.log_audit(conn, actor, 'delete', 'suppliers', row['id'], before=before,
+                             note='حذف کامل (هیچ رکوردی به آن وصل نبود)')
                 conn.commit()
-            self.send_json({'ok': True}); return
+                self.send_json({'ok': True, 'deleted': True, 'used': 0}); return
+            # رکورد دارد → فقط غیرفعال، تا سوابق نشکند
+            conn.execute('UPDATE suppliers SET is_active=0 WHERE id=?', (row['id'],))
+            db.log_audit(conn, actor, 'deactivate', 'suppliers', row['id'], before=before,
+                         note=f'غیرفعال شد ({used} رکورد به آن وصل است)')
+            conn.commit()
+            self.send_json({'ok': True, 'deleted': False, 'used': used,
+                            'note': f'{used} رکورد به این تأمین‌کننده وصل است، بنابراین فقط غیرفعال شد'})
+            return
 
         if collection == 'shippings':
             row = conn.execute('SELECT * FROM shippings WHERE id=?', (rid,)).fetchone()
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'delete_shipping')): return
+            if not self.require(session_user, self.session_can(session_user, 'delete_shipping')): return
             if row:
                 sh = shipping_row_to_dict(conn, row)
                 apply_shipping_to_lines(conn, sh.get('items', []), sign=-1)
@@ -1539,7 +2779,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if collection == 'purchases':
             row = conn.execute('SELECT * FROM purchases WHERE id=?', (rid,)).fetchone()
-            allowed = self.is_manager(session_user) or self.session_can(session_user, 'delete_purchase') or \
+            allowed = self.session_can(session_user, 'delete_purchase') or \
                 (session_user is not None and row is not None and row['expert'] == session_user['name'])
             if not self.require(session_user, allowed): return
             if row:
@@ -1553,7 +2793,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if collection == 'sales':
             row = conn.execute('SELECT * FROM sales WHERE id=?', (rid,)).fetchone()
-            allowed = self.is_manager(session_user) or self.session_can(session_user, 'delete_sale') or \
+            allowed = self.session_can(session_user, 'delete_sale') or \
                 (session_user is not None and row is not None and row['created_by'] == session_user['name'])
             if not self.require(session_user, allowed): return
             if row:
@@ -1576,8 +2816,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'ok': True}); return
 
         if collection == 'sales_returns':
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'register_sale_return')): return
+            if not self.require(session_user, self.session_can(session_user, 'register_sale_return')): return
             row = conn.execute('SELECT * FROM sales_returns WHERE id=?', (rid,)).fetchone()
             if row:
                 ret = salesreturn_row_to_dict(conn, row)
@@ -1595,8 +2834,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'ok': True}); return
 
         if collection == 'returns':
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'register_return')): return
+            if not self.require(session_user, self.session_can(session_user, 'register_return')): return
             row = conn.execute('SELECT data FROM docs WHERE collection=? AND id=?', ('returns', rid)).fetchone()
             if row:
                 ret = json.loads(row['data'])
@@ -1616,7 +2854,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if collection == 'requests':
             row = conn.execute('SELECT * FROM requests WHERE id=?', (rid,)).fetchone()
-            allowed = self.is_manager(session_user) or self.session_can(session_user, 'delete_request') or \
+            allowed = self.session_can(session_user, 'delete_request') or \
                 (session_user is not None and row is not None and row['expert'] == session_user['name'])
             if not self.require(session_user, allowed): return
             if row:
@@ -1643,21 +2881,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'ok': True}); return
 
         if collection == 'destinations':
-            if not self.require(session_user, self.is_manager(session_user)): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             conn.execute('DELETE FROM destinations WHERE id=?', (rid,))
             conn.commit()
             self.send_json({'ok': True}); return
 
         if collection == 'supplier_payments':
-            if not self.require(session_user, self.is_manager(session_user) or
-                                 self.session_can(session_user, 'register_payment')): return
+            if not self.require(session_user, self.session_can(session_user, 'register_payment')): return
             conn.execute('DELETE FROM supplier_payments WHERE id=?', (rid,))
             db.log_audit(conn, actor, 'delete', 'supplier_payments', rid)
             conn.commit()
             self.send_json({'ok': True}); return
 
         if collection == 'items':
-            if not self.require(session_user, self.is_manager(session_user)): return
+            if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             delete_doc(conn, 'items', int(rid))
             self.send_json({'ok': True}); return
 
@@ -1665,13 +2902,26 @@ class Handler(BaseHTTPRequestHandler):
             target = DOC_PATHS[collection]
             DOC_DELETE_PERM = {'contracts': 'delete_contract', 'contract_payments': 'delete_contract',
                                 'supply_plans': 'delete_supply_plan',
-                                'petty_charges': 'delete_petty_charge', 'petty_cash': 'delete_petty_charge'}
+                                'petty_charges': 'delete_petty_charge', 'petty_cash': 'delete_petty_statement',
+                                'invoice_docs': 'invoice_docs_edit'}   # [v140]
             need_perm = DOC_DELETE_PERM.get(target)
             if need_perm:
-                allowed = self.is_manager(session_user) or self.session_can(session_user, need_perm)
+                allowed = self.session_can(session_user, need_perm)
+                if not allowed:
+                    for alt in PERM_EQUIVALENT.get(need_perm, ()):
+                        if self.session_can(session_user, alt):
+                            allowed = True
+                            break
             else:
                 allowed = session_user is not None
             if not self.require(session_user, allowed): return
+            # دامنه‌ی دید: بدون مجوز «مشاهده همه»، فقط رکورد خودش قابل حذف است
+            if target in ('petty_cash', 'petty_charges', 'petty_deposits') and \
+                    not self.petty_can_view_all(session_user):
+                _existing = next((d for d in get_docs(conn, target) if str(d.get('id')) == str(rid)), None)
+                if _existing is not None and not self.petty_owns(_existing, session_user):
+                    self.send_json({'ok': False,
+                                    'error': 'این رکورد متعلق به شما نیست'}, 403); return
             delete_doc(conn, target, int(rid))
             self.send_json({'ok': True}); return
 
@@ -1686,6 +2936,81 @@ def safe_print(msg):
         print(msg)
     except OSError:
         pass
+
+
+def migrate_ghost_perms_v136():
+    """[v136] چهار مجوز تازه‌واقعی‌شده را به کسانی می‌دهد که پیش از این عملاً
+    دسترسی داشتند، تا کسی چیزی از دست ندهد. فقط یک‌بار اجرا می‌شود."""
+    conn = db.get_conn()
+    try:
+        if get_setting(conn, 'migrated_ghost_perms_v136'):
+            return
+        changed = 0
+        for u in conn.execute('SELECT id, name, role, perms_json FROM users').fetchall():
+            perms = json.loads(u['perms_json'] or '{}')
+            before = dict(perms)
+            if u['role'] == 'admin':
+                grant = True
+            elif u['role'] == 'manager':
+                grant = bool(perms.get('manage_backup') or perms.get('manage_lists'))
+            else:
+                grant = False
+            if grant:
+                for k in ('page_audit_log', 'page_data_health', 'manage_items'):
+                    perms.setdefault(k, True)
+                    if perms.get(k) is False:
+                        perms[k] = True
+            # سرپرست تنخواه: مجوز صدور صورت تنخواه
+            if perms.get('manage_petty_cash') or perms.get('create_petty_statement'):
+                if not perms.get('issue_statement_cover'):
+                    perms['issue_statement_cover'] = True
+            for k in PERM_KEYS:
+                perms.setdefault(k, False)
+            if perms != before:
+                conn.execute('UPDATE users SET perms_json=? WHERE id=?',
+                             (json.dumps(perms, ensure_ascii=False), u['id']))
+                changed += 1
+        set_setting(conn, 'migrated_ghost_perms_v136', True)
+        conn.commit()
+        if changed:
+            safe_print(f'{changed} کاربر: مجوزهای تازه‌واقعی‌شده اعمال شد')
+    finally:
+        conn.close()
+
+
+def migrate_invoice_perms_v140():
+    """[v140] تفکیک «مشاهدهٔ همهٔ صورت‌وضعیت‌ها» از «ثبت و ویرایش».
+    طبق تصمیم کاربر: ویرایش فقط برای ساریخانی (تجمیع‌کننده) و مدیران.
+    مشاهدهٔ همه هم برای همان‌ها روشن می‌شود؛ بقیه را خودِ کاربر با تیک می‌دهد."""
+    conn = db.get_conn()
+    try:
+        if get_setting(conn, 'migrated_invoice_perms_v140'):
+            return
+        changed = 0
+        for u in conn.execute('SELECT id, name, role, perms_json FROM users').fetchall():
+            perms = json.loads(u['perms_json'] or '{}')
+            before = dict(perms)
+            nm = (u['name'] or '').strip()
+            is_aggregator = ('ساریخانی' in nm)
+            is_boss = u['role'] in ('admin', 'manager')
+            if is_aggregator or is_boss:
+                perms['invoice_docs_view_all'] = True
+                perms['invoice_docs_edit'] = True
+            else:
+                perms.setdefault('invoice_docs_view_all', False)
+                perms['invoice_docs_edit'] = False
+            for k in PERM_KEYS:
+                perms.setdefault(k, False)
+            if perms != before:
+                conn.execute('UPDATE users SET perms_json=? WHERE id=?',
+                             (json.dumps(perms, ensure_ascii=False), u['id']))
+                changed += 1
+        set_setting(conn, 'migrated_invoice_perms_v140', True)
+        conn.commit()
+        if changed:
+            safe_print(f'{changed} کاربر: مجوزهای تحویل مدارک تفکیک شد')
+    finally:
+        conn.close()
 
 
 def migrate_manual_receipts_to_shippings():
@@ -1746,9 +3071,17 @@ if __name__ == '__main__':
     db.init_db()
     db.seed_if_empty()
     migrate_manual_receipts_to_shippings()
-    port = 8765
+    migrate_ghost_perms_v136()
+    migrate_invoice_perms_v140()
+    # [v124] یک پشتیبان هنگام بالا آمدن + زمان‌بند هر ۶ ساعت
+    make_backup(reason='هنگام راه‌اندازی سرور')
+    _backup_scheduler()
+    port = int(os.environ.get("PORT", "8765"))
     server = ThreadingHTTPServer(('0.0.0.0', port), Handler)
     safe_print(f'Server running on port {port} (SQLite: {db.DB_FILE})')
+    safe_print(f'پشتیبان خودکار: هر {BACKUP_EVERY_HOURS} ساعت → {BACKUP_DIR}')
+    safe_print('امنیت شبکه: ' + ('فقط شبکهٔ داخلی مجاز است' if ALLOW_ONLY_PRIVATE
+                                 else 'هشدار — اتصال از همه شبکه‌ها باز است'))
     server.serve_forever()
 
 
