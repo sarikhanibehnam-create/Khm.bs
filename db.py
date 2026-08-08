@@ -20,7 +20,25 @@ DB_FILE = os.path.join(BASE, 'mehr.db')
 SESSION_TTL_HOURS = 12
 
 
+def cleanup_expired_sessions(conn):
+    """[v142] پاک‌سازی نشست‌های منقضی‌شده.
+    پیش از این جدول sessions بی‌نهایت رشد می‌کرد (نمونه: ۱۳۸ از ۱۴۲ منقضی
+    ولی همچنان در جدول). این تابع رکوردهای منقضی را حذف می‌کند و تعداد
+    پاک‌شده را برمی‌گرداند.
+    """
+    cur = conn.execute('DELETE FROM sessions WHERE expires_at <= ?',
+                       (datetime.datetime.now().isoformat(),))
+    conn.commit()
+    return cur.rowcount
+
+
 def create_session(conn, user_id):
+    # [v142] هر ورود جدید یک نوبت پاک‌سازی نشست‌های منقضی هم می‌کند
+    # (تنبل و ارزان: در بدترین حالت هر چند ساعت یک‌بار اجرا می‌شود).
+    try:
+        cleanup_expired_sessions(conn)
+    except Exception:
+        pass  # پاک‌سازی نباید جلوی ورود کاربر را بگیرد
     token = secrets.token_hex(32)
     now = datetime.datetime.now()
     expires = now + datetime.timedelta(hours=SESSION_TTL_HOURS)
@@ -120,6 +138,10 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   nf_qty REAL DEFAULT 0, nf_reason TEXT DEFAULT '', no_fulfill INTEGER DEFAULT 0,
   price_pending INTEGER DEFAULT 0,
   legacy_line_no INTEGER,
+  -- [v142.6] برای اقلامی که نیاز به تحویل انبار ندارند (خدمات، هزینه‌های
+  -- متفرقه، آزمون‌ها، بلیط، کرایه، ...) — سیستم آن را به‌صورت خودکار
+  -- «تحویل‌شده کامل» فرض می‌کند و در گزارش‌های معلقی نمی‌آورد.
+  no_delivery_needed INTEGER DEFAULT 0,
   extra_json TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_pitems_purchase ON purchase_items(purchase_id);
@@ -245,18 +267,36 @@ CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor);
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_FILE)
+    # [v142.14] timeout=30s در سطح اتصال (ثانیه) — SQLite تا 30 ثانیه صبر می‌کند
+    # قبل از خطای "database is locked". این ریشه‌ی "اتصال به سرور محلی برقرار
+    # نشد" را در حالت concurrent requests رفع می‌کند.
+    conn = sqlite3.connect(DB_FILE, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA foreign_keys = ON')
     conn.execute('PRAGMA journal_mode = WAL')  # نوشتن سریع‌تر و ایمن‌تر تحت همزمانی
+    conn.execute('PRAGMA busy_timeout = 30000')  # 30 ثانیه صبر روی lock
+    conn.execute('PRAGMA synchronous = NORMAL')  # سریع‌تر با WAL و همچنان امن
     return conn
 
 
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    # [v142.6] migration نرم: افزودن ستون‌های جدید به دیتابیس‌های قدیمی.
+    # این کار idempotent است و اگر ستون از قبل وجود داشته باشد، عملی نمی‌کند.
+    _ensure_column(conn, 'purchase_items', 'no_delivery_needed', 'INTEGER DEFAULT 0')
     conn.commit()
     conn.close()
+
+
+def _ensure_column(conn, table, column, coldef):
+    """اگر ستون در جدول موجود نباشد، آن را اضافه می‌کند. برای migration نرم."""
+    cols = [c[1] for c in conn.execute(f'PRAGMA table_info({table})')]
+    if column not in cols:
+        try:
+            conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {coldef}')
+        except Exception:
+            pass  # اگر خطای همزمانی پیش آمد، نادیده بگیر
 
 
 def seed_if_empty():

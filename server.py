@@ -273,7 +273,7 @@ KNOWN_PURCHASE = {'id','req_number','expert','supplier','supplier_id','date','is
                   'line_items','created_at','imported','paid_amount','remaining_amount','due_date',
                   'payment_method','financial_status','closed','close_reason','closed_by','closed_at','_actor'}
 KNOWN_LINEITEM = {'line_id','item_code','item_name','qty','unit','unit_price','shipped_qty','ship_status',
-                  'nf_qty','nf_reason','no_fulfill','price_pending'}
+                  'nf_qty','nf_reason','no_fulfill','price_pending','no_delivery_needed'}
 KNOWN_SHIPPING = {'id','number','date','transport','driver','destination','created_by','warehouse_no',
                    'year','created_at','imported','items','_actor'}
 KNOWN_SHIPITEM = {'item_name','item_code','qty','unit','req_number','supplier','purchase_id','line_id',
@@ -319,6 +319,8 @@ def lineitem_row_to_dict(row):
     li['nf_reason'] = d.get('nf_reason') or ''
     li['no_fulfill'] = bool(d.get('no_fulfill'))
     li['price_pending'] = bool(d.get('price_pending'))
+    # [v142.6] فیلد جدید: قلم بدون نیاز به تحویل انبار (خدمات، هزینه‌ها، ...)
+    li['no_delivery_needed'] = bool(d.get('no_delivery_needed'))
     return li
 
 def purchase_row_to_dict(conn, row):
@@ -751,15 +753,31 @@ def find_duplicate_purchase(conn, purchase, line_items):
         except (TypeError, ValueError):
             same_qty = False
         when = str(hit['created_at'] or '')[:16].replace('T', ' ')
+        # [v142.7] پیام هشدار غنی‌تر شد: نام تامین‌کننده قبلی و جدید و مقایسه قیمت
+        prev_sup = str(hit['supplier'] or '—')
+        new_sup = str(it.get('supplier') or purchase.get('supplier') or '—')
+        different_sup = _norm_sup_name(prev_sup) != _norm_sup_name(new_sup)
         detail = (f"کالای «{hit['item_name']}» برای درخواست {req} پیش‌تر در "
-                  f"خرید شماره {hit['id']} ثبت شده است"
+                  f"خرید شماره {hit['id']} از تامین‌کننده «{prev_sup}» ثبت شده است"
                   + (f" (تاریخ ثبت: {when})" if when else '') + '.')
+        if different_sup:
+            detail += f'\n⚠️ تامین‌کننده جدید متفاوت است: «{new_sup}» — احتمال دوباره‌کاری.'
         if same_qty:
             detail += ' تعداد هر دو یکسان است.'
         else:
             detail += f" تعداد قبلی: {hit['qty']} — تعداد جدید: {it.get('qty')}."
+        # مقایسه قیمت (اگر هر دو داشته باشند)
+        try:
+            prev_price = float(str(hit['unit_price'] or 0).replace(',','') or 0)
+            new_price = float(str(it.get('unit_price') or 0).replace(',','') or 0)
+            if prev_price > 0 and new_price > 0 and prev_price != new_price:
+                diff_pct = round((new_price - prev_price) / prev_price * 100, 1)
+                arrow = '⬆️' if diff_pct > 0 else '⬇️'
+                detail += f" فی قبلی: {int(prev_price):,} — فی جدید: {int(new_price):,} ({arrow} {abs(diff_pct)}%)."
+        except (TypeError, ValueError):
+            pass
         return {'id': hit['id'],
-                'message': 'این قلم قبلاً برای همین درخواست ثبت شده است',
+                'message': 'این قلم قبلاً برای همین درخواست ثبت شده است' + (' — با تامین‌کننده متفاوت' if different_sup else ''),
                 'detail': detail}
     return None
 
@@ -1082,9 +1100,14 @@ def recompute_request_status(conn, rn):
         return
     all_done = True
     for p in purs:
-        items = conn.execute('SELECT qty, shipped_qty, nf_qty FROM purchase_items WHERE purchase_id=?',
-                              (p['id'],)).fetchall()
+        # [v142.6] no_delivery_needed هم مثل تحویل‌شده حساب می‌شود؛ اقلامی که
+        # ذاتاً تحویل انبار ندارند (خدمات، هزینه‌ها) نباید مانع بسته‌شدن درخواست شوند.
+        items = conn.execute(
+            'SELECT qty, shipped_qty, nf_qty, no_delivery_needed FROM purchase_items WHERE purchase_id=?',
+            (p['id'],)).fetchall()
         for it in items:
+            if it['no_delivery_needed']:
+                continue  # این قلم به‌طور خودکار تحویل‌شده حساب می‌شود
             try:
                 tq = float(it['qty'] or 0)
             except (TypeError, ValueError):
@@ -1101,6 +1124,12 @@ def recompute_request_status(conn, rn):
 
 # [v135] تنها مسیرهای GET که بدون ورود به سیستم مجازند (صفحهٔ ورود به آن‌ها نیاز دارد)
 GET_PUBLIC_PATHS = {'/api/me', '/api/ping'}
+
+# [v142] تنها مسیرهای POST که بدون نشست مجازند: ورود، خروج، بررسی قدرت رمز.
+# بقیه‌ی POST/PUT/DELETE بدون نشست معتبر ۴۰۱ می‌گیرند (لایه دوم دفاع؛
+# پیش از این هر handler خودش با self.require چک می‌کرد، ولی اضافه شدن یک
+# handler آینده می‌توانست بی‌سروصدا رخنه ایجاد کند).
+POST_PUBLIC_PATHS = {'/api/login', '/api/logout', '/api/password/check'}
 
 # [v135] اگر True باشد فقط رایانه‌های شبکهٔ داخلی می‌توانند وصل شوند
 ALLOW_ONLY_PRIVATE = os.environ.get('ALLOW_ONLY_PRIVATE', '1') != '0'
@@ -1270,6 +1299,26 @@ class Handler(BaseHTTPRequestHandler):
         if self.fin_can_view_all(session_user):
             return True
         return self.session_can(session_user, 'invoice_docs_view_all')
+
+    def contracts_can_view_all(self, session_user):
+        """[v142.3] آیا این کاربر همهٔ قراردادها را در فرم «تحویل مدارک به مالی» می‌بیند؟
+        قانون کسب‌وکار: تجمیع‌کنندهٔ مدارک (ساریخانی) و کسانی که مجوز مدیریت
+        قراردادها دارند باید بتوانند برای ثبت فاکتور، قرارداد را انتخاب کنند.
+        کارشناس عادی همچنان فقط قراردادهای مالک خودش را می‌بیند.
+        """
+        if session_user is None:
+            return False
+        if self.fin_can_view_all(session_user):
+            return True
+        # تجمیع‌کننده مدارک (ساریخانی و مشابه)
+        if self.session_can(session_user, 'invoice_docs_view_all'):
+            return True
+        # دارندگان مجوز مدیریت/ویرایش قرارداد
+        if self.session_can(session_user, 'manage_contracts'):
+            return True
+        if self.session_can(session_user, 'edit_contract'):
+            return True
+        return False
 
     def fin_owns(self, rec, session_user):
         """آیا این رکورد متعلق به همین کاربر است؟"""
@@ -1471,7 +1520,11 @@ class Handler(BaseHTTPRequestHandler):
                 _d = get_docs(conn, 'contracts')
                 if not self.fin_can_view(_su):
                     self.send_json([])
-                elif self.fin_can_view_all(_su):
+                # [v142.3] ساریخانی (تجمیع‌کنندهٔ مدارک) و دارندگان مجوز
+                # مدیریت/ویرایش قرارداد هم باید همهٔ قراردادها را ببینند
+                # تا بتوانند در فرم «تحویل مدارک به مالی» فاکتور مربوط به
+                # قرارداد ثبت کنند. پیش از این فقط view_all_purchases کار می‌کرد.
+                elif self.contracts_can_view_all(_su):
                     self.send_json(_d)
                 else:
                     self.send_json([x for x in _d if self.fin_owns(x, _su)])
@@ -1593,6 +1646,17 @@ class Handler(BaseHTTPRequestHandler):
                 return d
             return [x for x in d if self.fin_owns(x, _su)]
 
+        # [v142.3] قراردادها: ساریخانی (تجمیع‌کنندهٔ مدارک) و دارندگان مجوز
+        # مدیریت/ویرایش قرارداد باید همه قراردادها را در /api/all دریافت کنند
+        # تا فرم «تحویل مدارک به مالی» بتواند قرارداد را در گزینه‌ها نشان دهد.
+        def _contract_docs(coll):
+            d = get_docs(conn, coll)
+            if not _fin_any:
+                return []
+            if self.contracts_can_view_all(_su):
+                return d
+            return [x for x in d if self.fin_owns(x, _su)]
+
         def _fin_pays():
             rows = [dict(r) for r in conn.execute('SELECT * FROM supplier_payments ORDER BY id')]
             if not _fin_any:
@@ -1618,7 +1682,7 @@ class Handler(BaseHTTPRequestHandler):
             'requester_units': get_simple_list(conn, 'requester_units'),
             'locations': get_simple_list(conn, 'locations'),
             'contract_types': get_simple_list(conn, 'contract_types'),
-            'contracts': _fin_docs('contracts'), 'contract_payments': _fin_docs('contract_payments'),
+            'contracts': _contract_docs('contracts'), 'contract_payments': _fin_docs('contract_payments'),
             'settings': get_all_settings(conn),
             'returns': get_docs(conn, 'returns'), 'return_reasons': get_simple_list(conn, 'return_reasons'),
             'supply_plans': get_docs(conn, 'supply_plans'),
@@ -1649,20 +1713,90 @@ class Handler(BaseHTTPRequestHandler):
         })
 
     def compute_stats(self, conn):
-        rows = conn.execute('SELECT * FROM purchases ORDER BY id').fetchall()
-        purchases = [purchase_row_to_dict(conn, r) for r in rows]
+        """[v142] بازنویسی: پیش از این ship_status روی خودِ purchase خوانده می‌شد
+        (که چنین ستونی ندارد؛ ship_status روی purchase_items است) و مقدار همیشه ۰
+        بود. همچنین delivery_date روی purchase وجود ندارد؛ ستون واقعی due_date است.
+        شکل خروجی JSON برای سازگاری کامل با فرانت‌اند دست‌نخورده مانده است.
+        """
         today = datetime.date.today().strftime('%Y/%m/%d')
-        total = len(purchases)
-        shipped = sum(1 for p in purchases if p.get('ship_status') == 'shipped')
-        pending = sum(1 for p in purchases if p.get('ship_status') == 'pending')
-        non_fulfilled = sum(1 for p in purchases if (p.get('status') or '').find('عدم') >= 0)
-        total_amount = sum(float(p.get('invoice_amount', 0) or 0) for p in purchases)
-        overdue = [p for p in purchases if p.get('delivery_date', '') and p.get('delivery_date', '') < today
-                   and p.get('ship_status') == 'pending']
+        total = conn.execute('SELECT COUNT(*) c FROM purchases').fetchone()['c']
+
+        # یک خرید «تحویل‌شده» است اگر همه اقلامش ship_status='shipped' باشند.
+        # با یک SQL می‌شماریم: تعداد خریدهایی که حداقل یک قلم دارند و همه‌شان shipped.
+        shipped = conn.execute("""
+            SELECT COUNT(*) c FROM (
+              SELECT p.id
+              FROM purchases p
+              JOIN purchase_items pi ON pi.purchase_id = p.id
+              GROUP BY p.id
+              HAVING SUM(CASE WHEN pi.ship_status='shipped' THEN 0 ELSE 1 END) = 0
+            )
+        """).fetchone()['c']
+
+        # «در انتظار» = خریدی که هیچ قلمش هنوز ارسال نشده (همه pending یا nf)
+        pending = conn.execute("""
+            SELECT COUNT(*) c FROM (
+              SELECT p.id
+              FROM purchases p
+              JOIN purchase_items pi ON pi.purchase_id = p.id
+              GROUP BY p.id
+              HAVING SUM(CASE WHEN pi.ship_status='shipped' OR pi.ship_status='partial' THEN 1 ELSE 0 END) = 0
+            )
+        """).fetchone()['c']
+
+        # «عدم تحقق» = خریدی که حداقل یک قلمش عدم تحقق (no_fulfill=1 یا nf_qty>0) دارد
+        non_fulfilled = conn.execute("""
+            SELECT COUNT(DISTINCT purchase_id) c
+            FROM purchase_items
+            WHERE no_fulfill=1 OR (nf_qty IS NOT NULL AND nf_qty > 0)
+        """).fetchone()['c']
+
+        # مبلغ کل: از invoice_amount در extra_json خوانده می‌شود
+        total_amount = 0.0
+        for r in conn.execute("SELECT extra_json FROM purchases"):
+            try:
+                e = json.loads(r['extra_json'] or '{}')
+                total_amount += float(e.get('invoice_amount', 0) or 0)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+
+        # سررسیدهای گذشته: due_date < today و هنوز مانده دارد یا هنوز کاملاً ارسال نشده
+        overdue_rows = conn.execute("""
+            SELECT p.id, p.req_number, p.supplier, p.due_date, p.remaining_amount
+            FROM purchases p
+            WHERE p.due_date IS NOT NULL AND p.due_date <> '' AND p.due_date < ?
+              AND (
+                p.remaining_amount > 0
+                OR EXISTS (
+                  SELECT 1 FROM purchase_items pi
+                  WHERE pi.purchase_id = p.id AND pi.ship_status <> 'shipped'
+                )
+              )
+            ORDER BY p.due_date
+            LIMIT 10
+        """, (today,)).fetchall()
+
+        overdue_count = conn.execute("""
+            SELECT COUNT(*) c FROM purchases p
+            WHERE p.due_date IS NOT NULL AND p.due_date <> '' AND p.due_date < ?
+              AND (
+                p.remaining_amount > 0
+                OR EXISTS (
+                  SELECT 1 FROM purchase_items pi
+                  WHERE pi.purchase_id = p.id AND pi.ship_status <> 'shipped'
+                )
+              )
+        """, (today,)).fetchone()['c']
+
         req_count = conn.execute('SELECT COUNT(*) c FROM requests').fetchone()['c']
-        return {'total': total, 'shipped': shipped, 'pending': pending, 'non_fulfilled': non_fulfilled,
-                'total_amount': total_amount, 'overdue_count': len(overdue), 'overdue': overdue[:10],
-                'request_count': req_count}
+
+        return {
+            'total': total, 'shipped': shipped, 'pending': pending,
+            'non_fulfilled': non_fulfilled, 'total_amount': total_amount,
+            'overdue_count': overdue_count,
+            'overdue': [dict(r) for r in overdue_rows],
+            'request_count': req_count,
+        }
 
     def compute_payment_status(self, conn):
         """گزارش پیگیری پرداخت: خریدهایی با مانده پرداخت غیر صفر، همراه سررسید و
@@ -1694,8 +1828,14 @@ class Handler(BaseHTTPRequestHandler):
         conn = db.get_conn()
         try:
             session_user = self.get_session_user(conn)
-            actor = session_user['name'] if session_user is not None else \
-                (body.get('_actor') or body.get('created_by') or body.get('expert'))
+            # [v142] دروازهٔ مرکزی POST: بدون نشست معتبر فقط login/logout/password-check
+            if session_user is None and path not in POST_PUBLIC_PATHS:
+                self.send_json({'ok': False,
+                                'error': 'لطفاً دوباره وارد شوید (نشست منقضی شده)'}, status=401)
+                return
+            # [v142] actor فقط از نشست معتبر؛ هرگز از بدنه‌ی درخواست خوانده نمی‌شود
+            # (پیش از این body.get('_actor') می‌توانست هویت جعلی تحمیل کند).
+            actor = session_user['name'] if session_user is not None else None
             self.handle_post(conn, path, body, actor, session_user)
         finally:
             conn.close()
@@ -2035,12 +2175,16 @@ class Handler(BaseHTTPRequestHandler):
             for it in line_items:
                 it = dict(it)
                 li_extra = extras(it, KNOWN_LINEITEM)
+                # [v142.6] no_delivery_needed: قلم بدون نیاز به تحویل انبار
+                _no_delivery = 1 if it.get('no_delivery_needed') else 0
                 conn.execute(
                     '''INSERT INTO purchase_items (purchase_id, item_code, item_name, qty, unit, unit_price,
-                       shipped_qty, ship_status, nf_qty, nf_reason, no_fulfill, price_pending, extra_json)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                       shipped_qty, ship_status, nf_qty, nf_reason, no_fulfill, price_pending,
+                       no_delivery_needed, extra_json)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (pid, it.get('item_code', ''), it.get('item_name'), it.get('qty'), it.get('unit'),
-                     it.get('unit_price'), 0, 'pending', 0, '', 0, 0, json.dumps(li_extra, ensure_ascii=False))
+                     it.get('unit_price'), 0, 'pending', 0, '', 0, 0,
+                     _no_delivery, json.dumps(li_extra, ensure_ascii=False))
                 )
             recompute_request_status(conn, purchase.get('req_number'))
             out = purchase_row_to_dict(conn, conn.execute('SELECT * FROM purchases WHERE id=?', (pid,)).fetchone())
@@ -2323,8 +2467,13 @@ class Handler(BaseHTTPRequestHandler):
         conn = db.get_conn()
         try:
             session_user = self.get_session_user(conn)
-            actor = session_user['name'] if session_user is not None else \
-                (body.get('_actor') or body.get('created_by') or body.get('expert'))
+            # [v142] دروازهٔ مرکزی PUT: هیچ PUT عمومی‌ای وجود ندارد
+            if session_user is None:
+                self.send_json({'ok': False,
+                                'error': 'لطفاً دوباره وارد شوید (نشست منقضی شده)'}, status=401)
+                return
+            # [v142] actor فقط از نشست معتبر (بدون fallback به body)
+            actor = session_user['name']
             self.handle_put(conn, parts, body, actor, session_user)
         finally:
             conn.close()
@@ -2482,6 +2631,8 @@ class Handler(BaseHTTPRequestHandler):
                         cand = code_map.get(ck)
                         if cand and cand not in kept_ids:
                             lid = cand
+                    # [v142.6] no_delivery_needed از فرم به‌روزرسانی می‌شود
+                    _no_delivery = 1 if it.get('no_delivery_needed') else 0
                     if lid and lid in existing_ids:
                         try:
                             up = float(it.get('unit_price') or 0)
@@ -2490,18 +2641,20 @@ class Handler(BaseHTTPRequestHandler):
                         price_pending = 0 if up > 0 else 1
                         conn.execute(
                             '''UPDATE purchase_items SET item_code=?, item_name=?, qty=?, unit=?, unit_price=?,
-                               price_pending=?, extra_json=? WHERE id=?''',
+                               price_pending=?, no_delivery_needed=?, extra_json=? WHERE id=?''',
                             (it.get('item_code', ''), it.get('item_name'), it.get('qty'), it.get('unit'),
-                             it.get('unit_price'), price_pending, json.dumps(li_extra, ensure_ascii=False), lid)
+                             it.get('unit_price'), price_pending, _no_delivery,
+                             json.dumps(li_extra, ensure_ascii=False), lid)
                         )
                         kept_ids.add(lid)
                     else:
                         conn.execute(
                             '''INSERT INTO purchase_items (purchase_id, item_code, item_name, qty, unit, unit_price,
-                               shipped_qty, ship_status, nf_qty, nf_reason, no_fulfill, price_pending, extra_json)
-                               VALUES (?,?,?,?,?,?,0,'pending',0,'',0,0,?)''',
+                               shipped_qty, ship_status, nf_qty, nf_reason, no_fulfill, price_pending,
+                               no_delivery_needed, extra_json)
+                               VALUES (?,?,?,?,?,?,0,'pending',0,'',0,0,?,?)''',
                             (rid, it.get('item_code', ''), it.get('item_name'), it.get('qty'), it.get('unit'),
-                             it.get('unit_price'), json.dumps(li_extra, ensure_ascii=False))
+                             it.get('unit_price'), _no_delivery, json.dumps(li_extra, ensure_ascii=False))
                         )
                 # ردیف‌هایی که در ارسال جدید نبودند حذف شوند (مطابق رفتار قبلی replace کامل آرایه)
                 for old_id in existing_ids - kept_ids:
@@ -2709,7 +2862,14 @@ class Handler(BaseHTTPRequestHandler):
         conn = db.get_conn()
         try:
             session_user = self.get_session_user(conn)
-            actor = session_user['name'] if session_user is not None else None
+            # [v142] دروازهٔ مرکزی DELETE: هیچ DELETE عمومی‌ای وجود ندارد.
+            # این جلوی حذف‌های anonymous را می‌گیرد که در تحقیق روی audit_log
+            # گذشته دیده شد (۱۸ حذف بدون هویت روی petty_cash در روز v125).
+            if session_user is None:
+                self.send_json({'ok': False,
+                                'error': 'لطفاً دوباره وارد شوید (نشست منقضی شده)'}, status=401)
+                return
+            actor = session_user['name']
             self.handle_delete(conn, parts, actor, session_user)
         finally:
             conn.close()
@@ -3073,6 +3233,15 @@ if __name__ == '__main__':
     migrate_manual_receipts_to_shippings()
     migrate_ghost_perms_v136()
     migrate_invoice_perms_v140()
+    # [v142] پاک‌سازی نشست‌های منقضی هنگام راه‌اندازی
+    try:
+        _c = db.get_conn()
+        _n = db.cleanup_expired_sessions(_c)
+        _c.close()
+        if _n:
+            safe_print(f'پاک‌سازی نشست‌ها: {_n} نشست منقضی حذف شد')
+    except Exception as _e:
+        safe_print(f'خطای پاک‌سازی نشست‌ها: {_e}')
     # [v124] یک پشتیبان هنگام بالا آمدن + زمان‌بند هر ۶ ساعت
     make_backup(reason='هنگام راه‌اندازی سرور')
     _backup_scheduler()
