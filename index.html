@@ -4512,6 +4512,10 @@ if(location.protocol==='file:'){
         <div id="p-warehouse-wrap" style="display:none;margin-top:8px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">شماره رسید انبار (اختیاری)</label><input type="text" id="p-whno" placeholder="مثلاً 12345" autocomplete="off"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:3px">برای خریدهایی که تحویل/مصرف در محل دارند و وارد اعلام ارسال نمی‌شوند.</div>
       </div>
+      <div class="fgroup fg-full" style="background:#f0fdf4;border:1px dashed #86efac;border-radius:8px;padding:9px 12px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12.5px;font-weight:800;color:var(--navy)"><input type="checkbox" id="p-close-noship" onchange="toggleCloseNoShip()" style="width:auto"> بستن و تکمیل درخواست (بدون رسید/ارسال)</label>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">برای درخواست‌هایی مثل بلیط، بنزین، کرایه و خدمات که نه رسید انبار دارند و نه اعلام ارسال — با تأیید و ذخیره، درخواست بسته و تکمیل می‌شود.</div>
+      </div>
       <div class="fgroup fg-full" style="background:#f8fafc;border:1px dashed var(--border);border-radius:8px;padding:8px 12px;margin-top:4px">
         <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleInquiriesBox()">
           <span style="font-size:12px;font-weight:700;color:var(--navy)">📊 استعلام‌های قیمت (اختیاری - کلیک برای نمایش / مخفی‌سازی)</span>
@@ -6047,10 +6051,14 @@ if(location.protocol==='file:'){
         <b>اعضای محترم کمیسیون معاملات:</b><br>
         باتوجه به دلایل فوق، تامین اقلام از <b id="inq3-t2-sup" style="color:var(--navy)">—</b> مورد تایید می‌باشد.
       </div>
-      <div style="font-weight:700;font-size:12px;color:var(--navy);margin:12px 0 6px">✍️ نام و نام خانوادگی / سمت / امضا</div>
+      <div style="font-weight:700;font-size:12px;color:var(--navy);margin:12px 0 6px">✍️ اعضای بررسی فنی / ممیزان (نام + سمت + امضا)</div>
       <div class="fg fg2">
-        <div class="fgroup"><label>ممیز فنی ۱</label><input type="text" id="inq3-tech-ex1" autocomplete="off"></div>
-        <div class="fgroup"><label>ممیز فنی ۲</label><input type="text" id="inq3-tech-ex2" autocomplete="off"></div>
+        <div class="fgroup"><label>نام ممیز فنی ۱</label><input type="text" id="inq3-tech-ex1" autocomplete="off"></div>
+        <div class="fgroup"><label>سمت ممیز فنی ۱</label><input type="text" id="inq3-tech-role1" placeholder="مثلاً: مدیر فنی و مهندسی" autocomplete="off"></div>
+        <div class="fgroup"><label>نام ممیز فنی ۲</label><input type="text" id="inq3-tech-ex2" autocomplete="off"></div>
+        <div class="fgroup"><label>سمت ممیز فنی ۲</label><input type="text" id="inq3-tech-role2" placeholder="مثلاً: کارشناس کنترل کیفیت" autocomplete="off"></div>
+        <div class="fgroup"><label>نام ممیز فنی ۳</label><input type="text" id="inq3-tech-ex3" autocomplete="off"></div>
+        <div class="fgroup"><label>سمت ممیز فنی ۳</label><input type="text" id="inq3-tech-role3" placeholder="مثلاً: نماینده واحد درخواست‌کننده" autocomplete="off"></div>
       </div>
     </div>
     
@@ -6949,7 +6957,7 @@ function handleAuthExpiry(status){
   }
   return false;
 }
-const APP_VERSION = 142.14;
+const APP_VERSION = 13;
 const JMONTHS = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
 let D = {items:[],purchases:[],requests:[],shippings:[],users:[],reasons:[],units:[],suppliers:[],supplier_profiles:[],destinations:[],supplier_payments:[],car_models:[],petty_card_persons:[],sales:[],sales_returns:[],
         transport_types:[],ship_statuses:[],supply_statuses:[],requester_units:[],locations:[],contract_types:[],contracts:[],contract_payments:[],returns:[],return_reasons:[],supply_plans:[],need_declarations:[],petty_cash:[],petty_holders:[],petty_deposits:[],petty_charges:[],petty_fund:{},manual_receipts:[],petty_tracking:[],ship_queue:[],settings:{}};
@@ -6962,8 +6970,12 @@ function cachePettyStableData(){
 }
 function restorePettyStableDataIfEmpty(){
   try{
+    // اگر داده از سرور به‌طور صریح آمده باشد (سرویس آنلاین)، کشِ محلیِ قدیمی نباید
+    // داده‌ی حذف‌شده را برگرداند؛ فقط در حالت آفلاین واقعی (هیچ داده‌ای نرسیده) از کش استفاده می‌شود.
+    const online = (typeof isServerOnline !== 'undefined' && isServerOnline);
     PETTY_STABLE_KEYS.forEach(k=>{
       if(Array.isArray(D[k]) && D[k].length) return;
+      if(online) return; // داده از سرور آمده؛ کشِ قدیمی را تحمیل نکن
       const raw=localStorage.getItem('mehr_cache_'+k);
       if(!raw)return;
       const val=JSON.parse(raw);
@@ -6971,7 +6983,7 @@ function restorePettyStableDataIfEmpty(){
     });
     if(!D.petty_fund || typeof D.petty_fund!=='object' || !Object.keys(D.petty_fund).length){
       const raw=localStorage.getItem('mehr_cache_petty_fund');
-      if(raw){const val=JSON.parse(raw); if(val&&typeof val==='object')D.petty_fund=val;}
+      if(raw && !online){const val=JSON.parse(raw); if(val&&typeof val==='object')D.petty_fund=val;}
     }
   }catch(e){}
 }
@@ -7130,19 +7142,35 @@ const PurchaseStore={
           err=new Error(m);rec=null;
         }
       }catch(e){err=e;}
-      // اگر رکورد روی سرور وجود نداشت (مثل رکوردهای preloaded سری 500xxx)، خودکار به POST می‌افتد
+      // اگر رکورد روی سرور وجود نداشت، باید بفهمیم «پیش‌بارِ هنوز ثبت‌نشده» است یا «خرید واقعیِ حذف‌شده».
+      // رکوردهای پیش‌بار (ساختگی) id سری ۵۰۰xxx دارند؛ خریدهای واقعی این سیستم id کوچک دارند.
+      // برای خرید واقعی‌ای که حذف شده، PUT با ۴۰۴ مواجه می‌شود و نباید با POST دوباره ساخته شود
+      // (ریشه‌ی باگ «ردیف حذف‌شده برمی‌گردد»). فقط پیش‌بارها مجاز به fallback به POST هستند.
       if(err && err.status===404){
-        console.warn('[PurchaseStore] pid '+numId+' روی سرور یافت نشد؛ به‌عنوان خرید جدید ایجاد می‌شود.');
-        err=null; raw=null;
-        try{
-          const postBody = cleanLineItems({...body}, null);
-          delete postBody.id;
-          raw=await post('purchases',postBody);
-          rec=_apiPayload(raw);
-          if(rec && (rec.ok===false || rec.success===false)){
-            err=new Error(rec.error||rec.message||'خطا در ثبت خرید جدید');rec=null;
-          } else { createdViaPost=true; }
-        }catch(e2){err=e2;}
+        const isPreloadedPlaceholder = /^500\d{3,}$/.test(String(numId));
+        if(isPreloadedPlaceholder){
+          console.warn('[PurchaseStore] pid '+numId+' پیش‌بار ثبت‌نشده روی سرور؛ به‌عنوان خرید جدید ایجاد می‌شود.');
+          err=null; raw=null;
+          try{
+            const postBody = cleanLineItems({...body}, null);
+            delete postBody.id;
+            raw=await post('purchases',postBody);
+            rec=_apiPayload(raw);
+            if(rec && (rec.ok===false || rec.success===false)){
+              err=new Error(rec.error||rec.message||'خطا در ثبت خرید جدید');rec=null;
+            } else { createdViaPost=true; }
+          }catch(e2){err=e2;}
+        } else {
+          // خرید واقعی حذف‌شده: بازسازی نکن — صف معلق را پاک کن و از لیست محلی بردار
+          console.warn('[PurchaseStore] pid '+numId+' روی سرور یافت نشد (احتمالاً حذف شده)؛ بازسازی انجام نشد.');
+          try{
+            const ovs=purchaseOverrides();
+            if(ovs && ovs[String(numId)]){ delete ovs[String(numId)]; localStorage.setItem('purchase_overrides',JSON.stringify(ovs)); }
+            try{ post('settings/purchase_overrides',{purchase_overrides:purchaseOverrides()}).catch(()=>{}); }catch(_e){}
+          }catch(_e){}
+          D.purchases=(D.purchases||[]).filter(p=>Number(p.id)!==numId);
+          err=null; raw=null; rec={id:numId, _deleted:true};
+        }
       }
       if(!rec && !err){
         // بعضی نسخه‌های سرور فقط {ok:true} یا بدنه‌ی خالی برمی‌گردانند — رکورد را یکبار از سرور بگیر
@@ -7178,7 +7206,7 @@ const PurchaseStore={
       console.error('PurchaseStore.savePurchaseRecord failed; id='+id,err,'status='+(err.status||''),err.data||'',raw||'');
       throw err;
     }
-    if(rec && rec.id){
+    if(rec && rec.id && !rec._deleted){
       this.upsertLocal(rec);
       // اگر به خاطر 404 مجبور به POST شدیم، رکورد preloaded قدیمی را از D.purchases حذف کن
       if(createdViaPost && originalId && Number(rec.id)!==Number(originalId)){
@@ -7190,8 +7218,9 @@ const PurchaseStore={
         try { updatePurchaseIdReferences(originalId, rec.id).catch(()=>{}); } catch(_err){}
       }
     }
-    else if(id && !err){
-      // فقط در صورتی که خطایی نداشته‌ایم و سرور رکورد برنگرداند merge می‌کنیم (نه در حالت خطا)
+    else if(id && !err && !(rec && rec._deleted)){
+      // فقط در صورتی که خطایی نداشته‌ایم و سرور رکورد برنگرداند merge می‌کنیم (نه در حالت خطا،
+      // و نه وقتی خریدِ واقعی حذف‌شده است — در آن حالت رکورد نباید دوباره به لیست برگردد).
       const old=this.getById(id)||{};
       const merged={...old,...body,id:Number(id)};
       this.upsertLocal(merged);rec=merged;
@@ -7208,6 +7237,7 @@ const PurchaseStore={
 let editPID = null;
 let editGroupReq = null;
 let editGroupIds = [];
+let _closeNoShipPending = false;  // [v9] تیک «بستن و تکمیل درخواست» — بعد از ذخیره، درخواست بسته می‌شود
 let editGroupDeleteIds = [];
 let lineItemCount = 0;
 let sigCtx = null, sigDrawing = false;
@@ -10493,8 +10523,11 @@ function onMainSupplierChange(){
   });
   _lastMainSup = sup;
 }
-function toggleNoShipNeeded(){
-  const on=!!document.getElementById('p-no-ship')?.checked;
+function toggleNoShipNeeded(skipConfirm){
+  const cb=document.getElementById('p-no-ship');
+  const on=!!cb?.checked;
+  // [v9] به حالت اول برگشت: بدون confirm، تا کاربر بتواند هم تیک «نیازی به اعلام ارسال ندارد» را
+  // بزند و هم رسید دستی ثبت کند. بستنِ درخواست با تیکِ جداگانه انجام می‌شود.
   const w=document.getElementById('p-warehouse-wrap');
   if(w)w.style.display=on?'':'none';
   document.querySelectorAll('#line-items .litem-row').forEach(row=>{
@@ -10502,6 +10535,45 @@ function toggleNoShipNeeded(){
     else if(row.dataset.shipStatus==='not_needed') row.dataset.shipStatus='pending';
   });
 }
+function toggleCloseNoShip(){
+  const cb=document.getElementById('p-close-noship');
+  const on=!!cb?.checked;
+  if(on){
+    if(!confirm('آیا مطمئن هستید؟\n\nاین درخواست بدون رسید انبار و بدون اعلام ارسال بسته و تکمیل می‌شود.\nهمه اقلام آن به‌صورت «نیازی به اعلام ارسال ندارد» ثبت می‌شود.\nبا زدن «ذخیره خرید»، درخواست بسته می‌شود.')){
+      cb.checked=false;
+      _closeNoShipPending=false;
+      return;
+    }
+    // تیک اول (نیازی به اعلام ارسال ندارد) را هم خودکار روشن کن
+    const ns=document.getElementById('p-no-ship');
+    if(ns && !ns.checked){ ns.checked=true; try{toggleNoShipNeeded(true);}catch(e){} }
+    _closeNoShipPending=true;
+  } else {
+    _closeNoShipPending=false;
+  }
+}
+
+async function maybeCloseNoShipPurchase(){
+  // [v9] بعد از ذخیره، اگر تیک «بستن و تکمیل درخواست» روشن بود، درخواست را می‌بندد
+  if(!_closeNoShipPending) return;
+  _closeNoShipPending=false;
+  const reqStr = editGroupReq || v('p-rn') || '';
+  let pid = null;
+  if(editGroupIds && editGroupIds.length) pid = editGroupIds[0];
+  else if(editPID && editPID>0) pid = Number(editPID);
+  if(!pid && reqStr){
+    const first=(D.purchases||[]).find(p=>String(p.req_number)===String(reqStr));
+    if(first) pid = Number(first.id);
+  }
+  if(!pid){ return; }
+  try{
+    await post('close_purchase',{id:pid,close:true,reason:'بدون رسید/ارسال — تکمیل دستی',_actor:CU&&CU.name});
+    const req=(D.requests||[]).find(r=>String(r.req_number)===String(reqStr));
+    if(req) req.status='بسته';
+    toast('درخواست بسته و تکمیل شد ✓','ok');
+  }catch(e){ console.warn('maybeCloseNoShip failed', e); }
+}
+
 function toggleInquiriesBox(){
   const b=document.getElementById('inq-box');
   const a=document.getElementById('inq-arrow');
@@ -10958,6 +11030,14 @@ async function savePurchase(){
       }
       if(!offlineQueued){
         purchaseFormDirty=false;
+        // اگر خرید در فاصله‌ی ویرایش از سمت دیگر حذف شده باشد، بازسازی نمی‌کنیم و اطلاع می‌دهیم
+        if(savedRec && savedRec._deleted){
+          setPurchaseSavingButton(false);
+          editPID=null;clearPF();
+          try{goPage('purchases');refreshAllViews(lastStats);}catch(_e){}
+          toast('این خرید حذف شده است و ذخیره نشد.','warn');
+          return;
+        }
         purchaseLastSaveAt=todayJalali()+' '+new Date().toLocaleTimeString('fa-IR');
         setPurchaseFormStatus(PURCHASE_FORM_STATE.SAVED,purchaseLastSaveAt);
         if(body.expert && body.req_number){
@@ -10966,6 +11046,7 @@ async function savePurchase(){
         logSecurityEvent('update','purchases','ویرایش خرید/درخواست '+(body.req_number||''), editPID);
         setPurchaseSavingButton(false);
         toast('ویرایش با موفقیت ذخیره شد ✓','ok');
+        try{ await maybeCloseNoShipPurchase(); }catch(e){ console.warn('close after edit', e); }
         editPID=null;clearPF();
         if(CU.role==='admin'||can('page_purchases')){
           try{goPage('purchases');if(savedRec&&savedRec.id)highlightPurchase(savedRec.id);}catch(e){}
@@ -11012,7 +11093,9 @@ async function savePurchase(){
         logSecurityEvent('create','purchases','ثبت خرید درخواست '+(body.req_number||''), (newRec&&newRec.id)||'');
         try{await loadAll();}catch(e){}
         setPurchaseSavingButton(false);
-        toast('خرید ذخیره شد ✓','ok');clearPF();
+        toast('خرید ذخیره شد ✓','ok');
+        try{ await maybeCloseNoShipPurchase(); }catch(e){ console.warn('close after create', e); }
+        clearPF();
         try{refreshAllViews(lastStats);}catch(e){}
         if(CU.role==='admin'||can('page_purchases')){
           try{goPage('purchases');if(newRec&&newRec.id)highlightPurchase(newRec.id);}catch(e){}
@@ -11079,7 +11162,7 @@ function clearPF(){
   if(rnField){rnField.disabled=false;rnField.placeholder='شماره درخواست';}
   sv('p-paymethod','');
   try{document.getElementById('p-hasvat').checked=false;toggleVat();}catch(e){}
-  const ns=document.getElementById('p-no-ship'); if(ns)ns.checked=false; try{toggleNoShipNeeded();}catch(e){}
+  const ns=document.getElementById('p-no-ship'); if(ns)ns.checked=false; try{toggleNoShipNeeded(true);}catch(e){}
   try{fillSupplyStatusSelect();sv('p-st',(D.supply_statuses&&D.supply_statuses[0])||'در حال اقدام');}catch(e){}
   sv('p-nf','');
   const inqB=document.getElementById('inq-box'); if(inqB) inqB.style.display='none';
@@ -11799,7 +11882,7 @@ function editPurchaseGroup(reqNo){
   const noShip = firstP.ship_status==='not_needed' ||
                  rows.some(r=>r.ship_status==='not_needed' || r.no_delivery_needed===true);
   const ns=document.getElementById('p-no-ship'); if(ns)ns.checked=!!noShip;
-  sv('p-whno',firstP.warehouse_no||rows.find(r=>r.warehouse_no)?.warehouse_no||''); toggleNoShipNeeded();
+  sv('p-whno',firstP.warehouse_no||rows.find(r=>r.warehouse_no)?.warehouse_no||''); toggleNoShipNeeded(true);
   fillSupplyStatusSelectWith(firstP.status||rows[0].status||'در حال اقدام');sv('p-nf',firstP.nf_reason||'');
   sv('p-q1',nf(firstP.q1));sv('p-q2',nf(firstP.q2));sv('p-q3',nf(firstP.q3));sv('p-nt',firstP.notes||'');
   renderPurchasePayments();
@@ -11994,12 +12077,19 @@ async function savePurchaseGroup(body){
   });
   for(const staleId of staleIds){
     try{
-      // بررسی سبک وجود روی سرور قبل از DELETE تا از 404 اضافی پرهیز شود
-      try{ await get('purchases/'+staleId); }catch(ePre){ if(ePre && ePre.status===404) continue; }
-      await del('purchases/'+staleId);
+      // [v5] حذف ریشه‌ای: پیش از این کد اول با GET تکی بررسی می‌کرد، ولی endpoint تک‌رکوردیِ
+      // GET /api/purchases/<id> در سرور وجود ندارد و همیشه 404 می‌دهد، در نتیجه `continue` اجرا
+      // می‌شد و رکوردِ حذف‌شده از فرم هرگز واقعاً DELETE نمی‌شد → با رفرش از سرور برمی‌گشت.
+      // حالا مستقیم DELETE می‌زنیم؛ 404 یعنی رکورد از قبل حذف شده (اشکال ندارد)، 200 یعنی حذف شد.
+      const res = await del('purchases/'+staleId);
+      if(res && res.ok===false){ console.warn('delete stale failed', staleId, res.error||''); }
       D.purchases=D.purchases.filter(p=>Number(p.id)!==Number(staleId));
     }catch(e){
-      console.warn('delete stale duplicate purchase failed', staleId, e);
+      // 404 یعنی رکورد از قبل روی سرور نبود — نادیده بگیر؛ سایر خطاها را لاگ کن
+      if(!(e && (e.status===404 || e.status===410))) {
+        console.warn('delete stale duplicate purchase failed', staleId, e);
+      }
+      D.purchases=D.purchases.filter(p=>Number(p.id)!==Number(staleId));
     }
   }
 
@@ -12018,6 +12108,7 @@ async function savePurchaseGroup(body){
   }
   purchaseFormDirty=false;
   setPurchaseFormStatus(PURCHASE_FORM_STATE.SAVED,todayJalali());
+  try{ await maybeCloseNoShipPurchase(); }catch(e){ console.warn('close after group', e); }
   editGroupReq=null;editGroupIds=[];editGroupDeleteIds=[];editPID=null;clearPF();
   isServerOnline=true;updateConnBanner();
   try{goPage('purchases');if(firstSavedId)highlightPurchase(firstSavedId);}catch(e){}
@@ -12606,7 +12697,7 @@ function editP(id){
   sv('p-pdd',p.paid_date);
   sv('p-duedate',p.due_date||'');sv('p-paymethod',p.payment_method||'');
   const ns=document.getElementById('p-no-ship'); if(ns)ns.checked=(p.ship_status==='not_needed'||(p.line_items||[]).some(li=>li.ship_status==='not_needed'));
-  sv('p-whno',p.warehouse_no||''); toggleNoShipNeeded();
+  sv('p-whno',p.warehouse_no||''); toggleNoShipNeeded(true);
   fillSupplyStatusSelectWith(p.status||'در حال اقدام');sv('p-nf',p.nf_reason);
   sv('p-q1',nf(p.q1));sv('p-q2',nf(p.q2));sv('p-q3',nf(p.q3));sv('p-nt',p.notes);
   renderPurchasePayments();
@@ -12660,7 +12751,67 @@ async function delP(id){
   if(!requirePerm('delete_purchase','اجازه حذف خرید ندارید'))return;
   const p=D.purchases.find(x=>x.id===id);
   if(!confirm('حذف شود؟'))return;
-  await del('purchases/'+id);D.purchases=D.purchases.filter(p=>p.id!==id);
+  // [v2] حذف ریشه‌ای هماهنگ با سرور:
+  // پیش از این، فرانت فقط «باور» می‌کرد حذف انجام شده و رکورد را از صفحه حذف می‌کرد،
+  // بدون اینکه از سرور مطمئن شود. اگر حذف در سرور واقعاً انجام نشود، رکورد در دیتابیس می‌ماند
+  // و با هر بارگذاری دوباره برمی‌گشت. حالا بعد از حذف، از سرور تأیید می‌گیریم که رکورد دیگر
+  // وجود ندارد؛ اگر هنوز هست، آن را روی صفحه نگه می‌داریم و خطای صریح نمایش می‌دهیم.
+  try{
+    await del('purchases/'+id);
+  }catch(e){
+    toast('حذف انجام نشد — '+(e&&e.message||'خطا در ارتباط با سرور'),'err');
+    return;
+  }
+  // تأیید مضاعف: بررسی کن رکورد واقعاً روی سرور حذف شده است یا نه
+  let stillExists=false;
+  try{
+    const list=await get('purchases');
+    const arr=Array.isArray(list)?list:(list&&list.data)||[];
+    stillExists=arr.some(x=>Number(x.id)===Number(id));
+  }catch(e){ /* اگر GET با خطا مواجه شد، به رفتار قبلی (حذف از صفحه) ادامه نده */ }
+  if(stillExists){
+    // رکورد هنوز روی سرور است => حذف واقعاً انجام نشده؛ رکورد را در صفحه نگه دار و صریح بگو
+    try{ refreshAllViews(lastStats); }catch(_e){}
+    toast('این خرید حذف نشد و همچنان در سیستم ثبت است. دوباره تلاش کنید.','err');
+    return;
+  }
+  // حذف تأیید شد؛ حالا رکورد را از لیست محلی بردار و صف آفلاین را پاک کن
+  D.purchases=D.purchases.filter(x=>x.id!==id);
+  try{
+    const ovs=purchaseOverrides();
+    if(ovs){
+      // [v4] ریشه‌ی واقعی بازگشت: علاوه بر override با کلیدِ همین id، باید همه‌ی override های
+      // معلق (به‌خصوص کلیدهای tmp_...) که با خریدِ حذف‌شده هم‌هویت‌اند را هم پاک کنیم.
+      // چون flushPendingPurchaseQueue برای کلیدهای tmp_ با POST یک رکوردِ جدید می‌سازد،
+      // و اگر آن override معلقِ قدیمی باقی بماند، خریدِ حذف‌شده را با یک id تازه دوباره می‌سازد.
+      const deletedReq = String((p&&p.req_number)||'').trim();
+      const deletedSup = (p&&p.supplier||'').trim();
+      const deletedCodes = new Set();
+      (p&&p.line_items||[]).forEach(li=>{ const c=String(li&&li.item_code||'').trim(); if(c) deletedCodes.add(c); });
+      if(p&&p.item_code) deletedCodes.add(String(p.item_code).trim());
+      let changed=false;
+      Object.keys(ovs).forEach(k=>{
+        const o=ovs[k]; if(!o||typeof o!=='object') return;
+        if(String(k)===String(id)){ delete ovs[k]; changed=true; return; }
+        // فقط override های معلقِ هم‌هویت را پاک کن (نه override های معمولیِ غیرمعلقِ دیگر)
+        if(!o._pending_sync) return;
+        const oReq=String(o.req_number||'').trim();
+        const oSup=String(o.supplier||'').trim();
+        const oItems=o.line_items||[];
+        let oCodes=new Set();
+        oItems.forEach(li=>{ const c=String(li&&li.item_code||'').trim(); if(c) oCodes.add(c); });
+        const supMatch = deletedSup && oSup && (deletedSup===oSup || deletedSup.includes(oSup) || oSup.includes(deletedSup));
+        const reqMatch = deletedReq && oReq && deletedReq===oReq;
+        let codeMatch = deletedCodes.size>0;
+        if(codeMatch && oCodes.size>0){
+          codeMatch = [...deletedCodes].some(c=>oCodes.has(c));
+        }
+        if(reqMatch && supMatch && codeMatch){ delete ovs[k]; changed=true; }
+      });
+      if(changed){ localStorage.setItem('purchase_overrides',JSON.stringify(ovs)); }
+      try{ post('settings/purchase_overrides',{purchase_overrides:purchaseOverrides()}).catch(()=>{}); }catch(_e){}
+    }
+  }catch(e){ console.warn('clear pending override after delete failed', e); }
   invalidatePurchaseCache();
   logSecurityEvent('delete','purchases','حذف خرید '+(p&&p.req_number||''), id);
   refreshAllViews(lastStats);toast('رکورد با موفقیت حذف شد.','ok');
@@ -14295,7 +14446,22 @@ function nfReportRows(){
   return buildNonFulfillmentRows({respectYear:true,respectAccess:true}).map(r=>{
     const whole=r._nf_whole;
     const reason=(r._nf_reason&&r._nf_reason!=='—')?r._nf_reason:'سایر';
-    const nfQty=normalizeQtyNumber(r._nf_qty_text||r.nf_qty||r.qty);
+    // [v13] اصلاح باگ «عدم تحقق»: به‌جای برگشتن به r.qty (کل تعداد) که وقتی nf مقدار
+    // قابل اتکا نداشت، کل ۳ را به‌عنوان عدم تحقق نشان می‌داد، حالا عدد واقعی عدم تحقق
+    // استخراج می‌شود. اگر مقدار متنی (مثل «کل» یا «نصف») بود بر اساس qty محاسبه می‌شود،
+    // و اگر عدد صریح (مثل ۱ از ۳) بود همان عدد استفاده می‌شود.
+    const rawNfText=String(r._nf_qty_text||'').trim();
+    const explicitNf=nfTextToQty(rawNfText);
+    let nfQty;
+    if(explicitNf!=null){
+      nfQty=normalizeQtyNumber(explicitNf);
+    } else {
+      const t=faToEn(rawNfText);
+      const totalQty=normalizeQtyNumber(r.qty);
+      if(t.includes('کل')||t.includes('تمام')||t.includes('همه')||t.includes('کلی')) nfQty=totalQty;
+      else if(t.includes('نصف')||t.includes('ما?ابقی')||t.includes('باقی')) nfQty=Math.round((totalQty||0)/2);
+      else nfQty=normalizeQtyNumber(r.nf_qty)||0;
+    }
     const price=moneyNumber(r.unit_price);
     return {req_number:r.req_number,item_code:r.item_code,item_name:r.item_name,
       expert:r.expert||'—',supplier:r.supplier||'—',reason,nf_qty:nfQty,
@@ -14444,14 +14610,29 @@ function doPrintNonFulfillA5(idx,descText,actionsText){
   }
   const sup=group[0].supplier||'—';
   const reqno=group[0].req_number||'—';
-  const itemsRows=group.map((r,i)=>`<tr>
+  const itemsRows=group.map((r,i)=>{
+    // [v13] اصلاح باگ «عدم تحقق»: عدد واقعی عدم تحقق را محاسبه کن، نه اینکه به r.qty (کل) برگردد
+    const rawNfText=String(r._nf_qty_text||'').trim();
+    const explicitNf=nfTextToQty(rawNfText);
+    let nfNum;
+    if(explicitNf!=null){ nfNum=explicitNf; }
+    else {
+      const t=faToEn(rawNfText);
+      const totalQty=normalizeQtyNumber(r.qty);
+      if(t.includes('کل')||t.includes('تمام')||t.includes('همه')||t.includes('کلی')) nfNum=totalQty;
+      else if(t.includes('نصف')) nfNum=Math.round((totalQty||0)/2);
+      else nfNum=normalizeQtyNumber(r.nf_qty)||0;
+    }
+    const nfTxt=nfNum?nf(nfNum):(r.nf_qty||'—');
+    return `<tr>
     <td style="text-align:center">${i+1}</td>
     <td>${r.item_name||'—'}</td>
     <td style="text-align:center">${r.item_code||'—'}</td>
     <td style="text-align:center">${r.qty||'—'} ${r.unit||''}</td>
-    <td style="text-align:center">${r._nf_qty_text || r.nf_qty || '—'} ${r.unit||''}</td>
+    <td style="text-align:center">${nfTxt} ${r.unit||''}</td>
     <td>${r.reason || r._nf_reason || r.nf_reason || r.line_nf_reason || '—'}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
   const descBox=(descText||'').trim();
   const actionsBox=(actionsText||'').trim();
   const w=window.open('','_blank');if(!w){toast('مرورگر جلوی باز شدن پنجره چاپ/گزارش را گرفته است. لطفا پاپ‌آپ‌ها را فعال کنید.','warn');return;}
@@ -15579,6 +15760,15 @@ function nextInq3Number() {
   return nums.length ? Math.max(...nums) + 1 : 112;
 }
 
+// [v10] شماره مدرک استعلام سه برگی — سال به‌صورت خودکار از تاریخ شمسیِ جاری گرفته می‌شود
+// (نه ثابت ۱۴۰۴). مثال: «33/1405/م». هر فرم شماره‌ی ترتیبیِ مخصوص خودش را دارد.
+function inq3DocNo(no){
+  if(!no) return '';
+  const today=todayJalali();          // مثلاً 1405/05/05
+  const year=(String(today||'').split('/')[0]) || '1405';
+  return no + '/' + year + '/م';
+}
+
 function defaultTechnicalJustificationTemplate() {
   return `پیرو درخواست خرید و گزارش بررسی های بعمل آمده در خصوص قطعات موردنیاز، تامین کننده پیشنهادی (برازش صنعت) به عنوان تولیدکننده معتبر و مورد تایید واحد کنترل کیفیت می باشد. ضمناً جهت آینه، کیفیت و قیمت مورد قبول و تایید واحد کنترل کیفیت می باشد. ضمناً شرکت مذکور دارای گواهینامه مدیریت کیفیت IATF 16949 می باشد. ضمناً کیفیت نمونه ارسالی مورد تایید بوده و تست ریپورت و گزارش ها ارائه و تنظیم گردیده است. لذا با عنایت به دلایل فوق تامین اقلام از شرکت مذکور مورد تایید می باشد.`;
 }
@@ -15636,7 +15826,7 @@ function syncInq3Sheets(){
   const req=v('inq3-req').trim(), prod=v('inq3-prod').trim();
   const ch=inq3Chosen();
   const supName=ch?ch.name:'';
-  const docNo = no ? (no+'/1404/م') : '';
+  const docNo = inq3DocNo(no);
   // برگ دوم
   setV('inq3-t2-date',date); setV('inq3-t2-no',docNo);
   setT('inq3-t2-req',req); setT('inq3-t2-date2',date); setT('inq3-t2-sup',supName);
@@ -15690,7 +15880,11 @@ function openInq3Modal(inq) {
   sv('inq3-tech-dept', inq ? (inq.tech_dept || '') : 'فنی و مهندسی');
   sv('inq3-tech-desc', inq ? (inq.tech_desc || '') : defaultTechnicalJustificationTemplate());
   sv('inq3-tech-ex1', inq ? (inq.tech_ex1 || '') : '');
+  sv('inq3-tech-role1', inq ? (inq.tech_role1 || '') : '');
   sv('inq3-tech-ex2', inq ? (inq.tech_ex2 || '') : 'میثم زارع');
+  sv('inq3-tech-role2', inq ? (inq.tech_role2 || '') : '');
+  sv('inq3-tech-ex3', inq ? (inq.tech_ex3 || '') : '');
+  sv('inq3-tech-role3', inq ? (inq.tech_role3 || '') : '');
 
   sv('inq3-comm-date', inq ? (inq.comm_date || '') : todayJalali());
   sv('inq3-comm-loc', inq ? (inq.comm_loc || '') : 'دفتر مدیرعامل');
@@ -15788,7 +15982,11 @@ function inq3PrintData(){
     tech_dept: v('inq3-tech-dept'),
     tech_desc: v('inq3-tech-desc'),
     tech_ex1: v('inq3-tech-ex1'),
+    tech_role1: v('inq3-tech-role1'),
     tech_ex2: v('inq3-tech-ex2'),
+    tech_role2: v('inq3-tech-role2'),
+    tech_ex3: v('inq3-tech-ex3'),
+    tech_role3: v('inq3-tech-role3'),
     comm_date: v('inq3-comm-date'),
     comm_loc: v('inq3-comm-loc'),
     comm_dept: v('inq3-comm-dept'),
@@ -15826,10 +16024,10 @@ function buildInq3Print(d){
   const supRows = Array.from({length:5}, (_,i)=>{
     const x = d.suppliers[i] || {};
     const sel = x.selected && x.name;
-    return `<tr style="height:26px;${sel?'background:#EFF6FF;':''}">
+    return `<tr style="height:27px;${sel?'background:#EFF6FF;':''}">
       <td style="text-align:center;border:1px solid #ccc">${i+1}</td>
-      <td style="border:1px solid #ccc;padding:2px 6px;font-weight:${sel?'800':'400'}">${esc(x.name||'')}</td>
-      <td style="border:1px solid #ccc;text-align:left;padding:2px 6px;direction:ltr">${x.price?nf(x.price):''}</td>
+      <td style="border:1px solid #ccc;padding:2px 6px;text-align:center;font-weight:${sel?'800':'400'}">${esc(x.name||'')}</td>
+      <td style="border:1px solid #ccc;text-align:center;padding:2px 6px;direction:ltr">${x.price?nf(x.price):''}</td>
       <td style="border:1px solid #ccc;text-align:center;font-size:9.5px">${esc(x.terms||'')}</td>
       <td style="border:1px solid #ccc;padding:2px 5px;font-size:9.5px">${esc(x.contact||'')}</td>
       <td style="border:1px solid #ccc;padding:2px 5px;font-size:9.5px">${esc(x.note||'')}</td></tr>`;
@@ -15851,23 +16049,23 @@ function buildInq3Print(d){
       <th style="border:1px solid #ccc;padding:5px;width:88px">سایر توضیحات</th>
     </tr></thead><tbody>${supRows}</tbody></table>
     <div style="margin-top:auto">
-      <div style="border:1px solid #333;border-radius:5px;padding:9px 11px;margin-top:12px;font-size:10.5px;line-height:2">
+      <div style="border:1px solid #333;border-radius:5px;padding:11px 13px;margin-top:30px;font-size:11px;line-height:2.2">
         <b>مدیر محترم عامل:</b><br>با سلام<br>
         احتراماً با عنایت به پیشنهادات ارائه شده لطفا دستور فرمایید:<br>
-        <div style="margin:5px 0 0 0">${cb(d.ceo_buy)} خرید از شرکت <b>${esc(d.chosen.name||'............')}</b></div>
+        <div style="margin:6px 0 0 0">${cb(d.ceo_buy)} خرید از شرکت <b>${esc(d.chosen.name||'............')}</b></div>
         <div>${cb(d.ceo_commission)} طرح در کمیسیون معاملات جهت تصمیم گیری</div>
-        <div>${cb(d.ceo_action)} اقدام لازم به عمل آید.</div>
-        <div style="text-align:left;margin-top:16px;font-weight:700">مدیر بازرگانی — امضا</div>
+        <div>اقدام لازم به عمل آید.</div>
+        <div style="text-align:left;margin-top:18px;font-weight:700">مدیر بازرگانی — امضا</div>
       </div>
-      <div style="border:1px solid #333;border-radius:5px;padding:9px 11px;margin-top:8px;font-size:10.5px;line-height:2">
+      <div style="border:1px solid #333;border-radius:5px;padding:11px 13px;margin-top:10px;font-size:11px;line-height:2.2">
         <b>مدیریت محترم بازرگانی:</b><br>با سلام<br>
         ${cb(d.ceo_approve)} با پیشنهاد مطرح شده موافقت می شود.
-        <div style="text-align:left;margin-top:16px;font-weight:700">مدیر عامل — امضا</div>
+        <div style="text-align:left;margin-top:18px;font-weight:700">مدیر عامل — امضا</div>
       </div>
     </div></div>`;
 
   // ── برگ ۲: گزارش فنی و مهندسی ──
-  const docNo = d.no ? (d.no+'/1404/م') : '';
+  const docNo = inq3DocNo(d.no);
   const p2 = `<div class="inq3-page">
     ${inq3Head(d,'گزارش فنی و مهندسی تامین اقلام','۲ از ۳')}
     <div style="font-size:10.5px;line-height:2.1;margin-bottom:9px">
@@ -15881,18 +16079,24 @@ function buildInq3Print(d){
       باتوجه به دلایل فوق، تامین اقلام از <b>${esc(d.chosen.name||'............')}</b> مورد تایید می باشد.
     </div>
     <div style="margin-top:auto">
-      <div style="display:flex;gap:11px;margin-top:12px">
-        ${inq3SigBox('نام و نام خانوادگی', d.tech_ex1)}
-        ${inq3SigBox('نام و نام خانوادگی', d.tech_ex2)}
-      </div>
+      <table style="font-size:10.5px;margin-top:12px"><thead><tr style="background:#eef2f8">
+        <th style="border:1px solid #ccc;padding:5px;width:34%">نام و نام خانوادگی</th>
+        <th style="border:1px solid #ccc;padding:5px">سمت</th>
+        <th style="border:1px solid #ccc;padding:5px;width:26%">امضاء</th>
+      </tr></thead><tbody>
+        ${[['tech_ex1','tech_role1'],['tech_ex2','tech_role2'],['tech_ex3','tech_role3']].map(([nk,rk],i)=>`<tr style="height:38px">
+          <td style="border:1px solid #ccc;text-align:center;font-weight:700">${esc(d[nk]||'')}</td>
+          <td style="border:1px solid #ccc;padding:2px 8px">${esc(d[rk]||'')}</td>
+          <td style="border:1px solid #ccc"></td></tr>`).join('')}
+      </tbody></table>
       <div style="font-size:9px;color:#666;margin-top:6px;border-top:1px solid #eee;padding-top:4px">شماره گزارش: ${esc(docNo)}</div>
     </div></div>`;
 
   // ── برگ ۳: صورتجلسه کمیسیون ──
-  const commRows = d.suppliers.slice(0,4).map((x,i)=>`<tr style="height:25px;${x.selected&&x.name?'background:#EFF6FF;':''}">
+  const commRows = d.suppliers.slice(0,4).map((x,i)=>`<tr style="height:28px;${x.selected&&x.name?'background:#EFF6FF;':''}">
     <td style="text-align:center;border:1px solid #ccc">${i+1}</td>
-    <td style="border:1px solid #ccc;padding:2px 7px;font-weight:${x.selected&&x.name?'800':'400'}">${esc(x.name||'')}</td>
-    <td style="border:1px solid #ccc;text-align:left;padding:2px 7px;direction:ltr">${x.price?nf(x.price):''}</td></tr>`).join('');
+    <td style="border:1px solid #ccc;padding:2px 7px;text-align:center;font-weight:${x.selected&&x.name?'800':'400'}">${esc(x.name||'')}</td>
+    <td style="border:1px solid #ccc;text-align:center;padding:2px 7px;direction:ltr">${x.price?nf(x.price):''}</td></tr>`).join('');
   const members = [[d.ex1,'دبیر کمیسیون'],[d.ex3,'مدیر برنامه ریزی/ نماینده واحد درخواست کننده'],
                    [d.ex2,'مدیر مالی'],[d.ex4,'رئیس کمیسیون']];
   const p3 = `<div class="inq3-page">
@@ -15917,12 +16121,12 @@ function buildInq3Print(d){
       <th style="border:1px solid #ccc;padding:5px">نام پیشنهاد تامین کننده</th>
       <th style="border:1px solid #ccc;padding:5px;width:150px">مبلغ به عدد (ریال)</th>
     </tr></thead><tbody>${commRows}</tbody></table>
-    <div style="font-size:10.5px;line-height:2.1;margin-top:10px;border:1px solid #333;border-radius:5px;padding:9px 11px">
+    <div style="font-size:11.5px;line-height:2.3;margin-top:16px;border:1px solid #ccc;border-radius:6px;padding:14px 18px;background:#fff">
       با بررسی پیشنهادات مطرح شده / گزارش فنی و مهندسی به شماره <b>${esc(docNo)}</b>
       تاریخ <b>${esc(d.date||'......')}</b>، تامین اقلام مورد درخواست از
       <b>${esc(d.chosen.name||'............')}</b> به مبلغ
-      <b>${d.chosen.price?nf(d.chosen.price):'............'}</b> ریال مورد تصویب قرار می گیرد.
-      ${d.comm_note?`<br><span style="font-size:10px;color:#444">${esc(d.comm_note)}</span>`:''}
+      <b style="font-size:15px;color:#0f2d5a">${d.chosen.price?nf(d.chosen.price):'............'}</b> ریال مورد تصویب قرار می گیرد.
+      ${d.comm_note?`<br><span style="font-size:10.5px;color:#555">${esc(d.comm_note)}</span>`:''}
     </div>
     <div style="margin-top:auto">
       <table style="font-size:10.5px;margin-top:12px"><thead><tr style="background:#eef2f8">
@@ -15930,7 +16134,7 @@ function buildInq3Print(d){
         <th style="border:1px solid #ccc;padding:5px">سمت</th>
         <th style="border:1px solid #ccc;padding:5px;width:26%">امضاء</th>
       </tr></thead><tbody>
-      ${members.map(([n,r])=>`<tr style="height:40px">
+      ${members.map(([n,r])=>`<tr style="height:62px">
         <td style="border:1px solid #ccc;text-align:center;font-weight:700">${esc(n||'')}</td>
         <td style="border:1px solid #ccc;padding:2px 8px">${esc(r)}</td>
         <td style="border:1px solid #ccc"></td></tr>`).join('')}
@@ -16010,7 +16214,11 @@ async function saveInq3Form() {
     tech_dept: v('inq3-tech-dept'),
     tech_desc: v('inq3-tech-desc'),
     tech_ex1: v('inq3-tech-ex1'),
+    tech_role1: v('inq3-tech-role1'),
     tech_ex2: v('inq3-tech-ex2'),
+    tech_role2: v('inq3-tech-role2'),
+    tech_ex3: v('inq3-tech-ex3'),
+    tech_role3: v('inq3-tech-role3'),
 
     comm_date: v('inq3-comm-date'),
     comm_loc: v('inq3-comm-loc'),
@@ -16126,7 +16334,9 @@ function inq3RecordToPrintData(inq){
     ceo_buy: !!inq.ceo_buy, ceo_commission: !!inq.ceo_commission,
     ceo_action: !!inq.ceo_action, ceo_approve: !!inq.ceo_approve,
     tech_dept: inq.tech_dept||'فنی و مهندسی', tech_desc: inq.tech_desc||'',
-    tech_ex1: inq.tech_ex1||'', tech_ex2: inq.tech_ex2||'',
+    tech_ex1: inq.tech_ex1||'', tech_role1: inq.tech_role1||'',
+    tech_ex2: inq.tech_ex2||'', tech_role2: inq.tech_role2||'',
+    tech_ex3: inq.tech_ex3||'', tech_role3: inq.tech_role3||'',
     comm_date: inq.comm_date||inq.date||'', comm_loc: inq.comm_loc||'دفتر مدیرعامل',
     comm_dept: inq.comm_dept||'بازرگانی', comm_note: inq.comm_note||'',
     ex1: inq.comm_ex1||'', ex2: inq.comm_ex2||'',
@@ -17725,7 +17935,35 @@ function exportDepositsCSV(){
   downloadBlob(blob,'واریز_تنخواه_'+(person||'همه')+'.csv');
   toast('خروجی آماده شد ✓','ok');
 }
-async function delDeposit(id){if(!(isManager()||can('petty_deposit_finance'))){toast('فقط مدیر یا مالی می‌تواند حذف کند','err');return;}if(!confirm('حذف شود؟'))return;await del('petty_deposits/'+id);D.petty_deposits=D.petty_deposits.filter(x=>x.id!==id);logSecurityEvent('delete','petty_deposits','حذف واریز تنخواه', id);renderDeposits();renderSettlements();if(typeof renderTracking==='function')renderTracking();toast('رکورد با موفقیت حذف شد.','ok');}
+async function delDeposit(id){
+  if(!(isManager()||can('petty_deposit_finance'))){toast('فقط مدیر یا مالی می‌تواند حذف کند','err');return;}
+  if(!confirm('حذف شود؟'))return;
+  // [v3] حذف ریشه‌ای: بعد از حذف از سرور، هم لیست محلی هم کشِ محلی (mehr_cache_petty_deposits)
+  // را از رکوردِ حذف‌شده پاک می‌کنیم تا restorePettyStableDataIfEmpty رکوردِ حذف‌شده را
+  // دوباره از کشِ قدیمی مرورگر برنگرداند (ریشه‌ی باگ «واریز حذف‌شده دوباره ظاهر می‌شود»).
+  try{
+    await del('petty_deposits/'+id);
+  }catch(e){
+    toast('حذف انجام نشد — '+(e&&e.message||'خطا در ارتباط با سرور'),'err');
+    return;
+  }
+  D.petty_deposits=(D.petty_deposits||[]).filter(x=>String(x.id)!==String(id));
+  // به‌روزرسانی کشِ محلی تا رکورد حذف‌شده از آن هم بیرون برود
+  try{
+    const raw=localStorage.getItem('mehr_cache_petty_deposits');
+    if(raw){
+      let val=[]; try{ val=JSON.parse(raw); }catch(_e){}
+      if(Array.isArray(val)){
+        val=val.filter(x=>String(x&&x.id)!==String(id));
+        localStorage.setItem('mehr_cache_petty_deposits', JSON.stringify(val));
+      }
+    }
+  }catch(e){}
+  logSecurityEvent('delete','petty_deposits','حذف واریز تنخواه', id);
+  renderDeposits();renderSettlements();
+  if(typeof renderTracking==='function')renderTracking();
+  toast('رکورد با موفقیت حذف شد.','ok');
+}
 function renderSettlements(){
   const tb=document.getElementById('settle-tb');if(!tb)return;
   const L=D.petty_cash||[];
@@ -21783,5 +22021,5 @@ try{ localStorage.removeItem('mehr_dark_mode'); }catch(e){}
 tryRestoreSession();
 
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a178f974da1ee459',t:'MTc4MzQ0OTU5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19bb36f28210a53',t:'MTc4MzgxMzcyNg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19ec765ab39cd17',t:'MTc4Mzg0NjAwMQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1a6bceeddd87757',t:'MTc4MzkyOTQ1OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2137d160c5bb8cc',t:'MTc4NTA2OTc5MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a178f974da1ee459',t:'MTc4MzQ0OTU5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19bb36f28210a53',t:'MTc4MzgxMzcyNg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19ec765ab39cd17',t:'MTc4Mzg0NjAwMQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1a6bceeddd87757',t:'MTc4MzkyOTQ1OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2137d160c5bb8cc',t:'MTc4NTA2OTc5MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a28653e0d84a3649',t:'MTc4NjI3Mzk2Ng=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>

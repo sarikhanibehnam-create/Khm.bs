@@ -2639,11 +2639,15 @@ class Handler(BaseHTTPRequestHandler):
                         except (TypeError, ValueError):
                             up = 0.0
                         price_pending = 0 if up > 0 else 1
+                        # [v7] ship_status نیز به‌روزرسانی شود؛ پیش از این فقط no_delivery_needed آپدیت
+                        # می‌شد و وضعیت ارسال قلم «pending/در انتظار» می‌ماند حتی وقتی تیک
+                        # «نیازی به اعلام ارسال ندارد» روشن بود.
+                        _ship_st = it.get('ship_status') or 'pending'
                         conn.execute(
                             '''UPDATE purchase_items SET item_code=?, item_name=?, qty=?, unit=?, unit_price=?,
-                               price_pending=?, no_delivery_needed=?, extra_json=? WHERE id=?''',
+                               price_pending=?, ship_status=?, no_delivery_needed=?, extra_json=? WHERE id=?''',
                             (it.get('item_code', ''), it.get('item_name'), it.get('qty'), it.get('unit'),
-                             it.get('unit_price'), price_pending, _no_delivery,
+                             it.get('unit_price'), price_pending, _ship_st, _no_delivery,
                              json.dumps(li_extra, ensure_ascii=False), lid)
                         )
                         kept_ids.add(lid)
