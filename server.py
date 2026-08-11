@@ -1173,6 +1173,97 @@ def is_private_ip(ip):
     return ip.startswith('fe80:') or ip.startswith('fc') or ip.startswith('fd')
 
 
+# ---------------------------------------------------------------------------
+# [v143] یکتایی شماره فرم عدم تحقق (سمت سرور — منبع حقیقت)
+#
+# قانون تاییدشده:
+#   - «سطح فرم»: چند قلم داخلِ یک فرم/خرید می‌توانند یک شماره مشترک داشته باشند.
+#   - دو فرم/خریدِ جدا هرگز نباید شماره‌ی یکسانی داشته باشند.
+#   - سیاست «مسکوت»: شماره‌ی فرمی که هنگام ویرایش پاک/حل می‌شود، برای همیشه
+#     رزرو می‌ماند (در بایگانی nf_records ثبت می‌شود) تا دوباره استفاده نشود.
+# ---------------------------------------------------------------------------
+def _nf_nums_of_purchase(conn, purchase_id):
+    """همه‌ی شماره‌های فرم عدم تحقق یک خرید (سربرگ + قلم‌ها)."""
+    nums = set()
+    p = conn.execute('SELECT extra_json FROM purchases WHERE id=?', (purchase_id,)).fetchone()
+    if p:
+        try:
+            e = json.loads(p['extra_json'] or '{}')
+            for k in ('nf_number', 'form_no'):
+                v = str(e.get(k, '') or '').strip()
+                if v:
+                    nums.add(v)
+        except Exception:
+            pass
+    for it in conn.execute('SELECT extra_json FROM purchase_items WHERE purchase_id=?', (purchase_id,)):
+        try:
+            e = json.loads(it['extra_json'] or '{}')
+            for k in ('nf_number', 'line_nf_number', 'form_no'):
+                v = str(e.get(k, '') or '').strip()
+                if v:
+                    nums.add(v)
+        except Exception:
+            pass
+    return nums
+
+
+def reserved_nf_numbers(conn, exclude_purchase_id=None):
+    """همه‌ی شماره‌های رزروشده: فرم‌های فعالِ سایر خریدها + بایگانی مسکوت (nf_records).
+
+    exclude_purchase_id: هنگام ویرایش، شماره‌های همین خرید لحاظ نمی‌شوند تا چند
+    قلمِ همان فرم بتوانند یک شماره داشته باشند."""
+    nums = set()
+    for r in conn.execute('SELECT pi.purchase_id, pi.extra_json FROM purchase_items pi'):
+        if exclude_purchase_id is not None and r['purchase_id'] == exclude_purchase_id:
+            continue
+        try:
+            e = json.loads(r['extra_json'] or '{}')
+            for k in ('nf_number', 'line_nf_number', 'form_no'):
+                v = str(e.get(k, '') or '').strip()
+                if v:
+                    nums.add(v)
+        except Exception:
+            pass
+    for r in conn.execute('SELECT id, extra_json FROM purchases'):
+        if exclude_purchase_id is not None and r['id'] == exclude_purchase_id:
+            continue
+        try:
+            e = json.loads(r['extra_json'] or '{}')
+            for k in ('nf_number', 'form_no'):
+                v = str(e.get(k, '') or '').strip()
+                if v:
+                    nums.add(v)
+        except Exception:
+            pass
+    for r in conn.execute("SELECT data FROM docs WHERE collection='nf_records'"):
+        try:
+            e = json.loads(r['data'])
+            if isinstance(e, dict):
+                for k in ('nf_number', 'line_nf_number', 'form_no'):
+                    v = str(e.get(k, '') or '').strip()
+                    if v:
+                        nums.add(v)
+        except Exception:
+            pass
+    return nums
+
+
+def submitted_nf_numbers(body, line_items):
+    """شماره‌های فرم عدم تحققِ درخواست در حال ثبت/ویرایش (سربرگ + قلم‌ها)."""
+    nums = set()
+    for k in ('nf_number', 'form_no'):
+        v = str((body or {}).get(k, '') or '').strip()
+        if v:
+            nums.add(v)
+    for it in (line_items or []):
+        it = it or {}
+        for k in ('nf_number', 'line_nf_number', 'form_no'):
+            v = str(it.get(k, '') or '').strip()
+            if v:
+                nums.add(v)
+    return nums
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): pass
 
@@ -1888,6 +1979,82 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'ok': True})
             return
 
+        # [v143] بازگشت به جریان — اقدام مستقیم برای ردیف‌های عدم تحقق.
+        # بدون صدور فرم جدید: قلم(های) انتخابیِ همان خرید به جریان تأمین برمی‌گردند،
+        # شماره فرم مسکوت می‌شود و رویداد با علت ثبت می‌شود.
+        if path == '/api/nf/return':
+            if not self.require(session_user, True): return
+            purchase_id = body.get('purchase_id')
+            line_ids = body.get('line_ids') or []
+            reason = (body.get('reason') or '').strip()
+            note = (body.get('note') or '').strip()
+            if not purchase_id or not line_ids:
+                self.send_json({'ok': False, 'error': 'خرید یا قلم مشخص نشده است'}, 400); return
+            if not reason:
+                self.send_json({'ok': False, 'error': 'انتخاب علت بازگشت به جریان الزامی است'}, 400); return
+            try:
+                purchase_id = int(purchase_id)
+                line_ids = [int(x) for x in line_ids]
+            except (TypeError, ValueError):
+                self.send_json({'ok': False, 'error': 'شناسه نامعتبر است'}, 400); return
+            prow = conn.execute('SELECT * FROM purchases WHERE id=?', (purchase_id,)).fetchone()
+            if not prow:
+                self.send_json({'ok': False, 'error': 'خرید یافت نشد'}, 404); return
+            # سطح دسترسی: صاحب رکورد یا مجوز «ثبت عدم تحقق»/«ویرایش هر خرید»
+            allowed = (session_user is not None and prow['expert'] == session_user['name']) or \
+                self.session_can(session_user, 'register_nonfulfill') or \
+                self.session_can(session_user, 'edit_any_purchase')
+            if not self.require(session_user, allowed): return
+            # شماره‌های فرم پیش از پاک‌سازی (مبنای سیاست مسکوت)
+            nums_before = _nf_nums_of_purchase(conn, purchase_id)
+            updated = 0
+            for lid in line_ids:
+                it = conn.execute(
+                    'SELECT id, extra_json FROM purchase_items WHERE id=? AND purchase_id=?',
+                    (lid, purchase_id)).fetchone()
+                if not it:
+                    continue
+                try:
+                    e = json.loads(it['extra_json'] or '{}')
+                except Exception:
+                    e = {}
+                for k in ('nf_number', 'line_nf_number', 'form_no', 'nf_reason', 'nf_qty_meta'):
+                    e.pop(k, None)
+                conn.execute('UPDATE purchase_items SET nf_qty=0, nf_reason=?, no_fulfill=0, extra_json=? WHERE id=?',
+                             ('', json.dumps(e, ensure_ascii=False), lid))
+                updated += 1
+            if updated == 0:
+                self.send_json({'ok': False, 'error': 'قلم یافت نشد'}, 404); return
+            # اگر سربرگ خرید هم پرچم عدم تحقق داشت، پاک شود
+            try:
+                pe = json.loads(prow['extra_json'] or '{}')
+            except Exception:
+                pe = {}
+            changed_head = False
+            for k in ('nf_number', 'form_no', 'nf_reason'):
+                if pe.get(k):
+                    pe.pop(k, None); changed_head = True
+            if changed_head:
+                conn.execute('UPDATE purchases SET extra_json=? WHERE id=?',
+                             (json.dumps(pe, ensure_ascii=False), purchase_id))
+            # سیاست مسکوت: شماره‌هایی که دیگر در هیچ قلم این خرید نیستند و رزرو نشده‌اند
+            nums_after = _nf_nums_of_purchase(conn, purchase_id)
+            cleared = nums_before - nums_after
+            if cleared:
+                reserved = reserved_nf_numbers(conn, exclude_purchase_id=purchase_id)
+                for num in cleared:
+                    if num and num not in reserved:
+                        create_doc(conn, 'nf_records', {
+                            'nf_number': num, 'muted': True, 'muted_at': now_iso(),
+                            'purchase_id': purchase_id, 'muted_by': actor,
+                            'reason': 'بازگشت به جریان: ' + reason,
+                        }, actor)
+            recompute_request_status(conn, prow['req_number'])
+            db.log_audit(conn, actor, 'update', 'purchases', purchase_id,
+                         note=f'بازگشت به جریان ({reason}) — {updated} قلم' + ((' — ' + note) if note else ''))
+            conn.commit()
+            self.send_json({'ok': True, 'updated': updated, 'returned': True, 'purchase_id': purchase_id}); return
+
         if path == '/api/audit_log':
             # [v136] رویدادهای امنیتی رابط کاربری تا امروز به ۴۰۴ می‌خوردند و
             # بی‌صدا دور ریخته می‌شدند. حالا واقعا ثبت می‌شوند. هویت ثبت‌کننده
@@ -2129,6 +2296,16 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require(session_user, self.session_can(session_user, 'create_purchase')): return
             purchase = dict(body); purchase.pop('_actor', None)
             line_items = purchase.pop('line_items', [])
+            # [v143] نگهبان یکتایی شماره فرم عدم تحقق — دو فرم جدا نباید یک شماره داشته باشند
+            sub_nf = submitted_nf_numbers(purchase, line_items)
+            if sub_nf:
+                conflicts = sorted(sub_nf & reserved_nf_numbers(conn))
+                if conflicts:
+                    self.send_json({'ok': False, 'nf_duplicate': True,
+                                    'error': 'شماره فرم عدم تحقق ' + '، '.join(conflicts) +
+                                             ' قبلاً برای فرم دیگری استفاده شده است؛ شماره‌ای یکتا وارد کنید.',
+                                    'conflicts': conflicts}, 409)
+                    return
             # [v126] نگهبان ثبت تکراری — پیش از این هیچ کنترلی نبود.
             # نمونه واقعی: درخواست ۱۶۲۸۱، کارشناس احمدی، پنج بار «مواد ABS-70»
             # را در فاصله ۱۰:۲۷ تا ۱۵:۰۶ همان روز ثبت کرد و سیستم هر پنج بار
@@ -2572,6 +2749,20 @@ class Handler(BaseHTTPRequestHandler):
             before = purchase_row_to_dict(conn, row)
             body = dict(body)
             line_items = body.pop('line_items', None)
+            # [v143] نگهبان یکتایی شماره فرم عدم تحقق هنگام ویرایش.
+            # شماره‌های همین خرید (rid) مجازند (چند قلم یک فرم)؛ درگیری با سایر فرم‌ها/بایگانی ممنوع است.
+            # _old_nf_nums باید پیش از هر تغییر دیتابیس گرفته شود (مبنای سیاست مسکوت).
+            _old_nf_nums = _nf_nums_of_purchase(conn, int(rid)) if line_items is not None else set()
+            if line_items is not None:
+                sub_nf = submitted_nf_numbers(body, line_items)
+                if sub_nf:
+                    conflicts = sorted(sub_nf & reserved_nf_numbers(conn, exclude_purchase_id=int(rid)))
+                    if conflicts:
+                        self.send_json({'ok': False, 'nf_duplicate': True,
+                                        'error': 'شماره فرم عدم تحقق ' + '، '.join(conflicts) +
+                                                 ' قبلاً برای فرم دیگری استفاده شده است؛ شماره‌ای یکتا وارد کنید.',
+                                        'conflicts': conflicts}, 409)
+                        return
             if body.get('supplier'):
                 sid = resolve_or_create_supplier(conn, body['supplier'], actor)
                 body['supplier_id'] = sid
@@ -2663,6 +2854,23 @@ class Handler(BaseHTTPRequestHandler):
                 # ردیف‌هایی که در ارسال جدید نبودند حذف شوند (مطابق رفتار قبلی replace کامل آرایه)
                 for old_id in existing_ids - kept_ids:
                     conn.execute('DELETE FROM purchase_items WHERE id=?', (old_id,))
+                # [v143] سیاست مسکوت: شماره‌های فرمی که هنگام ویرایش حذف/حل شدند،
+                # برای همیشه رزرو می‌مانند تا دوباره در فرم دیگری استفاده نشوند.
+                # (قدیم/جدید از روی پیش از ویرایش محاسبه می‌شود)
+                new_nums = submitted_nf_numbers(body, line_items)
+                cleared = _old_nf_nums - new_nums
+                if cleared:
+                    reserved = reserved_nf_numbers(conn, exclude_purchase_id=int(rid))
+                    for num in cleared:
+                        if num and num not in reserved:
+                            create_doc(conn, 'nf_records', {
+                                'nf_number': num,
+                                'muted': True,
+                                'muted_at': now_iso(),
+                                'purchase_id': int(rid),
+                                'muted_by': actor,
+                                'reason': 'فرم عدم تحقق هنگام ویرایش حل/ابطال شد (سیاست مسکوت)',
+                            }, actor)
             rn = body.get('req_number', row['req_number'])
             recompute_request_status(conn, rn)
             out = purchase_row_to_dict(conn, conn.execute('SELECT * FROM purchases WHERE id=?', (rid,)).fetchone())

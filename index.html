@@ -8869,7 +8869,8 @@ function hasNonFulfillmentFlag(r){
   if(!r) return false;
   const status=String(r.status||'');
   const qty=String(r.nf_qty||r.line_nf_qty||'').trim();
-  return status.includes('عدم') || !!(r.line_nf_number||r.nf_number||r.line_nf_reason||r.nf_reason||r.reason) || (qty && qty!=='0' && qty!=='۰');
+  // [v143] پرچم no_fulfill (ثبت گروهی/کل قلم) هم به‌عنوان عدم تحقق شمرده شود
+  return status.includes('عدم') || !!r.no_fulfill || !!(r.line_nf_number||r.nf_number||r.line_nf_reason||r.nf_reason||r.reason) || (qty && qty!=='0' && qty!=='۰');
 }
 // [v131] فیلتر سال برای عدم تحقق — بازنویسی ریشه‌ای.
 // مشکل قبلی: عدم تحقق معمولاً پیش از صدور فاکتور ثبت می‌شود، پس inv_date و
@@ -9001,7 +9002,8 @@ function resolveExpertForNonFulfillment(raw){
 }
 function normalizeNonFulfillmentRow(r, source){
   r = r || {};
-  const whole = !!(r.status && String(r.status).includes('عدم'));
+  // [v143] پرچم no_fulfill (کل قلم) هم «کل» حساب شود تا تعداد کل قلم نمایش یابد
+  const whole = !!((r.status && String(r.status).includes('عدم')) || r.no_fulfill);
   const reason = whole ? (r.nf_reason||r.reason||'—') : (r.line_nf_reason||r.nf_reason||r.reason||'—');
   // [v14] ریشه‌ی باگ «عدم تحقق»:
   // - اگر nf_qty عدد صریح دارد (مثل ۱ از ۳)، همان استفاده می‌شود.
@@ -11005,7 +11007,9 @@ async function savePurchase(){
         if(editPID && Number(p.id) === Number(editPID)) return false; // نادیده گرفتن رکورد ویرایشی فعلی
         if(p.nf_number && String(p.nf_number).trim() === String(it.nf_number).trim()) return true;
         return (p.line_items||[]).some(li => String(li.nf_number || li.line_nf_number || '').trim() === String(it.nf_number).trim());
-      }) || (D.non_fulfillments||[]).some(nf => String(nf.nf_number || nf.form_no || '').trim() === String(it.nf_number).trim());
+      }) || (D.non_fulfillments||[]).some(nf => String(nf.nf_number || nf.form_no || '').trim() === String(it.nf_number).trim())
+      // [v143] بایگانی مسکوت هم منبع شماره‌های رزروشده است (سیاست مسکوت)
+      || (D.nf_records||[]).some(nf => String(nf.nf_number || nf.form_no || nf.line_nf_number || '').trim() === String(it.nf_number).trim());
       
       if(isDuplicate){
         concurrencyConflict = true;
@@ -11616,6 +11620,7 @@ function flattenPurchaseRows(){
           }
           return li.nf_reason || li.line_nf_reason || p.nf_reason || p.status_desc || '';
         })(),
+        no_fulfill: !!(li.no_fulfill || p.no_fulfill),
         line_nf_reason: (() => {
           const reqNo = p.req_number || '';
           const itemCode = li.item_code || '';
@@ -14431,6 +14436,7 @@ function renderNF(){
       <td style="font-size:11px;max-width:250px">${reason}</td>
       <td>
         ${editBtn}
+        <button class="btn btn-ghost btn-sm" style="color:#0f766e" onclick="returnNfToFlow(${Number(r.purchase_id)||0}, ${Number(r.line_id)||0}, '${esc(r.req_number||'')}')" title="بازگشت به جریان تأمین (بدون صدور فرم جدید)">↩ بازگشت</button>
         <button class="btn btn-ghost btn-sm" onclick="quickAssignExpert('${esc(r.req_number)}', null)" title="ارجاع به کارشناس">👤</button>
         <button class="btn btn-ghost btn-sm" onclick="printNonFulfillA5(${i})" title="چاپ فرم عدم تحقق A5">🖨</button>
       </td>
@@ -14448,6 +14454,52 @@ function renderNF(){
   }
 }
 
+// ═══ [v143] بازگشت به جریان عدم تحقق — بدون صدور فرم جدید ═══
+// قلم انتخابی همان درخواست به جریان تأمین برمی‌گردد؛ شماره فرم مسکوت و
+// رویداد با علت در Audit Log ثبت می‌شود. پس از بازگشت، دکمه‌ی ویرایش همین
+// درخواست نشان داده می‌شود تا کارشناس اطلاعات تأمین را در همان درخواست وارد کند.
+const NF_RETURN_REASONS = ['تأمین مجدد / تأمین‌کننده جدید','موجود شد / تأمین انجام شد','تصحیح ثبت قبلی','توافق با تأمین‌کننده','تأیید مدیریت','سایر'];
+function returnNfToFlow(purchaseId, lineId, reqNo){
+  if(!purchaseId || !lineId){ toast('شناسه ردیف نامعتبر است — صفحه را Ctrl+F5 کنید','err'); return; }
+  const old = document.getElementById('m-nf-return'); if(old) old.remove();
+  const d = document.createElement('div');
+  d.id='m-nf-return'; d.className='overlay open';
+  d.innerHTML = `<div class="modal modal-md">
+    <div class="mh"><div class="mt">↩ بازگشت به جریان — درخواست ${esc(reqNo||'')}</div>
+      <button class="btn btn-ghost" onclick="document.getElementById('m-nf-return').remove()">✕</button></div>
+    <div style="padding:16px 20px">
+      <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:10px 13px;margin-bottom:14px;font-size:11.5px;color:#065f46;line-height:1.9">
+        این ردیف بدون صدور فرم جدید، به جریان تأمین همان درخواست برمی‌گردد.
+        شماره فرم برای همیشه رزرو (مسکوت) می‌شود و اقدام در رویدادنامه ثبت می‌گردد.
+      </div>
+      <div class="fgroup"><label>علت بازگشت به جریان <b style="color:#dc2626">*</b></label>
+        <select id="nfr-reason">${NF_RETURN_REASONS.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select></div>
+      <div class="fgroup" style="margin-top:10px"><label>یادداشت (اختیاری)</label>
+        <textarea id="nfr-note" rows="2" placeholder="توضیح کوتاه (اختیاری)"></textarea></div>
+    </div>
+    <div class="mf"><button class="btn btn-navy" onclick="confirmReturnNf(${Number(purchaseId)}, ${Number(lineId)})">↩ تأیید بازگشت به جریان</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('m-nf-return').remove()">انصراف</button></div>
+  </div>`;
+  document.body.appendChild(d);
+}
+async function confirmReturnNf(purchaseId, lineId){
+  const reason=(document.getElementById('nfr-reason')?.value||'').trim();
+  const note=(document.getElementById('nfr-note')?.value||'').trim();
+  if(!reason){ toast('انتخاب علت بازگشت الزامی است','err'); return; }
+  try{
+    const r=await post('nf/return',{purchase_id:purchaseId,line_ids:[lineId],reason,note});
+    if(r && r.ok){
+      const m=document.getElementById('m-nf-return'); if(m)m.remove();
+      toast('ردیف به جریان تأمین برگشت ✓','ok');
+      try{ logSecurityEvent('return','non_fulfillment','بازگشت به جریان قلم ('+reason+')', lineId); }catch(e){}
+      try{ await loadAll(); refreshAllViews(lastStats); }catch(e){}
+      // دکمه ویرایش همان درخواست برای ادامه‌ی تأمین
+      try{ if(r.purchase_id) editPurchasesByReqNo('', r.purchase_id); }catch(e){}
+      return;
+    }
+    toast((r&&r.error)||'بازگشت ناموفق بود','err');
+  }catch(e){ toast('خطا در بازگشت به جریان','err'); }
+}
 function toggleNFView(){
   const listV=document.getElementById('nf-list-view');
   const repV=document.getElementById('nf-report-view');
