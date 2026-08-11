@@ -5708,8 +5708,13 @@ if(location.protocol==='file:'){
     </div>
     <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px">
       <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px">این فاکتور مربوط به کدام درخواست‌هاست؟ (یک یا چند مورد را تیک بزنید)</div>
+      <div style="display:flex;gap:4px;margin-bottom:6px">
+        <input type="text" id="inv-req-manual" placeholder="ورود دستی شماره درخواست و Enter..." autocomplete="off" style="flex:1" onkeydown="if(event.key==='Enter'){addInvoiceReqManual();event.preventDefault();}">
+        <button type="button" class="btn btn-outline btn-sm" onclick="addInvoiceReqManual()">+ افزودن</button>
+      </div>
       <input type="text" id="inv-req-search" placeholder="جستجوی شماره درخواست..." style="width:100%;margin-bottom:6px" oninput="renderInvoiceReqOptions()">
       <div id="inv-req-list" style="max-height:200px;overflow-y:auto;font-size:12px"></div>
+      <div id="inv-req-manual-tags" style="font-size:11px;color:var(--navy);margin-top:4px"></div>
     </div>
     <div class="fg" style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-top:8px">
       <div class="fgroup"><label>کارشناس ثبت‌کننده</label><input type="text" id="inv-expert" placeholder="ساریخانی" value="ساریخانی"></div>
@@ -6957,7 +6962,7 @@ function handleAuthExpiry(status){
   }
   return false;
 }
-const APP_VERSION = 13;
+const APP_VERSION = 22;
 const JMONTHS = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
 let D = {items:[],purchases:[],requests:[],shippings:[],users:[],reasons:[],units:[],suppliers:[],supplier_profiles:[],destinations:[],supplier_payments:[],car_models:[],petty_card_persons:[],sales:[],sales_returns:[],
         transport_types:[],ship_statuses:[],supply_statuses:[],requester_units:[],locations:[],contract_types:[],contracts:[],contract_payments:[],returns:[],return_reasons:[],supply_plans:[],need_declarations:[],petty_cash:[],petty_holders:[],petty_deposits:[],petty_charges:[],petty_fund:{},manual_receipts:[],petty_tracking:[],ship_queue:[],settings:{}};
@@ -8998,7 +9003,28 @@ function normalizeNonFulfillmentRow(r, source){
   r = r || {};
   const whole = !!(r.status && String(r.status).includes('عدم'));
   const reason = whole ? (r.nf_reason||r.reason||'—') : (r.line_nf_reason||r.nf_reason||r.reason||'—');
-  const qtyTxt = whole ? (r.qty||r.nf_qty||'—') : (r.nf_qty||r.line_nf_qty||'—');
+  // [v14] ریشه‌ی باگ «عدم تحقق»:
+  // - اگر nf_qty عدد صریح دارد (مثل ۱ از ۳)، همان استفاده می‌شود.
+  // - اگر nf_qty صراحتاً ۰ یا خالی باشد، نباید به تعداد کل (qty) برگردیم، چون «عدم تحقق» صفر
+  //   یعنی هیچ عدم تحققی ثبت نشده، نه اینکه کل آن عدم تحقق باشد.
+  // - فقط وقتی nf_qty اصلاً مشخص نشده (خالی/undefined) و whole باشد از qty استفاده می‌شود.
+  let qtyTxt;
+  const rawNfQty = r.nf_qty;
+  const rawLineNf = r.line_nf_qty;
+  // nf_qty «تنظیم نشده» یعنی undefined/null/خالی؛ صفر (عدد 0 یا '0') یعنی صراحتاً «هیچ»
+  const nfNotSet = rawNfQty === undefined || rawNfQty === null || String(rawNfQty).trim() === '';
+  const nfIsZero = !nfNotSet && (String(rawNfQty).trim() === '0' || String(rawNfQty).trim() === '۰');
+  const lineNotSet = rawLineNf === undefined || rawLineNf === null || String(rawLineNf).trim() === '' || String(rawLineNf).trim() === '0';
+  if(!nfNotSet && !nfIsZero) {
+    qtyTxt = rawNfQty; // عدد صریح عدم تحقق (مثل ۱ از ۳)
+  } else if(!lineNotSet) {
+    qtyTxt = rawLineNf;
+  } else if(nfNotSet && whole) {
+    // فقط وقتی nf_qty اصلاً تنظیم نشده (نه صفر) و وضعیت «عدم» است، از کل (qty) استفاده شود
+    qtyTxt = r.qty || '—';
+  } else {
+    qtyTxt = '—'; // nf_qty صراحتاً ۰ است → عدم تحقق ثبت نشده
+  }
   const formNo = r.line_nf_number || r.nf_number || '';
   const resolvedExpert=resolveExpertForNonFulfillment(r);
   return Object.assign({}, r, {
@@ -14280,8 +14306,8 @@ function genPrv(s){
       `<div style="text-align:center;color:#666;font-size:9.5px;margin-top:5px">ادامه در صفحه بعد ...</div>`;
     const sigBlock =
       `<div class="sig-block" style="display:flex;justify-content:space-between;gap:14px;margin-top:10px">
-           <div style="flex:1;border:1px solid #333;border-radius:5px;padding:6px;text-align:center"><div style="font-weight:800;margin-bottom:3px">تهیه‌کننده</div><div style="font-size:11px;color:#222;font-weight:700">${esc(preparerName)}</div>${sigHtml}<div style="font-size:10px;color:#555">تاریخ و امضاء</div></div>
-           <div style="flex:1;border:1px solid #333;border-radius:5px;padding:6px;text-align:center"><div style="font-weight:800;margin-bottom:3px">تایید‌کننده</div><div style="font-size:11px;color:#555">مدیر بازرگانی</div>${asigHtml}<div style="font-size:10px;color:#555">تاریخ و امضاء</div></div>
+           <div style="flex:1;border:1px solid #222;border-radius:5px;padding:6px;text-align:center"><div style="font-weight:800;margin-bottom:3px">تهیه‌کننده</div><div style="font-size:11px;color:#222;font-weight:700">${esc(preparerName)}</div>${sigHtml}<div style="font-size:10px;color:#555">تاریخ و امضاء</div></div>
+           <div style="flex:1;border:1px solid #222;border-radius:5px;padding:6px;text-align:center"><div style="font-weight:800;margin-bottom:3px">تایید‌کننده</div><div style="font-size:11px;color:#555">مدیر بازرگانی</div>${asigHtml}<div style="font-size:10px;color:#555">تاریخ و امضاء</div></div>
          </div>${contHint}`;
     html+=`<div class="ship-page" style="display:flex;flex-direction:column"><div style="direction:rtl;font-family:Tahoma,sans-serif;font-size:11px;display:flex;flex-direction:column;flex:1">
       ${amendBanner}
@@ -14647,7 +14673,7 @@ function doPrintNonFulfillA5(idx,descText,actionsText){
     body{font-family:Tahoma,sans-serif;font-size:10.5px;color:#111}
     .box{width:198mm;height:130mm;border:1.8px solid #222;border-radius:6px;padding:5px;display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
     .hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0f2d5a;padding-bottom:3px;margin-bottom:3px}
-    .doc{font-size:10px;line-height:1.5;border:1px solid #333;padding:3px 6px;border-radius:4px;font-weight:700}
+    .doc{font-size:10px;line-height:1.5;border:1px solid #222;padding:3px 6px;border-radius:4px;font-weight:700}
     table{width:100%;border-collapse:collapse;margin:2px 0;font-size:10px;table-layout:fixed}
     td,th{border:1.2px solid #444;padding:2px 4px;text-align:right;line-height:1.3;max-height:8mm;overflow:hidden}
     th{background:#eef2f8;font-weight:800;font-size:10.5px}
@@ -15997,13 +16023,13 @@ function inq3PrintData(){
 }
 function inq3Head(d, title, pageNo){
   const logo = document.querySelector('.sb-logo img')?.src || '';
-  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f2d5a;padding-bottom:7px;margin-bottom:9px">
-    <img src="${logo}" style="height:72px;object-fit:contain">
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #0f2d5a;padding-bottom:8px;margin-bottom:10px">
+    <img src="${logo}" style="height:66px;width:66px;object-fit:contain;background:#eef2f8;border:1px solid #d1d5db">
     <div style="text-align:center;flex:1">
-      <div style="font-size:16px;font-weight:800;color:#0f2d5a">${esc(title)}</div>
-      <div style="font-size:10.5px;color:#666;margin-top:2px">مجموعه خودرو مهر</div>
+      <div style="font-size:15.5px;font-weight:800;color:#0f2d5a">${esc(title)}</div>
+      <div style="font-size:10px;color:#666;margin-top:1px">مجموعه خودرو مهر</div>
     </div>
-    <div style="font-size:9.5px;line-height:1.85;border:1px solid #ccc;padding:5px 8px;border-radius:4px;min-width:132px">
+    <div style="font-size:9.5px;line-height:1.85;border:1.5px solid #0f2d5a;padding:5px 9px;border-radius:5px;min-width:142px">
       <div><b>شماره مدرک:</b> ${esc(d.doc)}</div>
       <div><b>تاریخ:</b> ${esc(d.date||'............')}</div>
       <div><b>شماره:</b> ${esc(d.no||'...')}</div>
@@ -16012,7 +16038,7 @@ function inq3Head(d, title, pageNo){
     </div></div>`;
 }
 function inq3SigBox(label, name){
-  return `<div style="flex:1;border:1px solid #333;border-radius:5px;padding:7px;text-align:center">
+  return `<div style="flex:1;border:1px solid #222;border-radius:5px;padding:7px;text-align:center">
     <div style="font-weight:800;font-size:11px;margin-bottom:3px">${esc(label)}</div>
     <div style="font-size:10.5px;color:#222;font-weight:700;min-height:15px">${esc(name||'')}</div>
     <div style="height:52px"></div>
@@ -16024,32 +16050,32 @@ function buildInq3Print(d){
   const supRows = Array.from({length:5}, (_,i)=>{
     const x = d.suppliers[i] || {};
     const sel = x.selected && x.name;
-    return `<tr style="height:27px;${sel?'background:#EFF6FF;':''}">
-      <td style="text-align:center;border:1px solid #ccc">${i+1}</td>
-      <td style="border:1px solid #ccc;padding:2px 6px;text-align:center;font-weight:${sel?'800':'400'}">${esc(x.name||'')}</td>
-      <td style="border:1px solid #ccc;text-align:center;padding:2px 6px;direction:ltr">${x.price?nf(x.price):''}</td>
-      <td style="border:1px solid #ccc;text-align:center;font-size:9.5px">${esc(x.terms||'')}</td>
-      <td style="border:1px solid #ccc;padding:2px 5px;font-size:9.5px">${esc(x.contact||'')}</td>
-      <td style="border:1px solid #ccc;padding:2px 5px;font-size:9.5px">${esc(x.note||'')}</td></tr>`;
+    return `<tr style="height:28px;${sel?'background:#EFF6FF;':''}">
+      <td style="text-align:center;border:1px solid #888">${i+1}</td>
+      <td style="border:1px solid #888;padding:2px 5px;text-align:center;font-weight:${sel?'800':'400'};white-space:nowrap;overflow:hidden">${esc(x.name||'')}</td>
+      <td style="border:1px solid #888;text-align:center;padding:2px 6px;direction:ltr;font-variant-numeric:tabular-nums">${x.price?nf(x.price):''}</td>
+      <td style="border:1px solid #888;text-align:center;font-size:9.5px;white-space:nowrap;overflow:hidden">${esc(x.terms||'')}</td>
+      <td style="border:1px solid #888;padding:2px 5px;font-size:9.5px;white-space:nowrap;overflow:hidden">${esc(x.contact||'')}</td>
+      <td style="border:1px solid #888;padding:2px 5px;font-size:9.5px">${esc(x.note||'')}</td></tr>`;
   }).join('');
   const p1 = `<div class="inq3-page">
     ${inq3Head(d,'فرم وضعیت استعلام','۱ از ۳')}
     <table style="font-size:10.5px;margin-bottom:8px"><tr>
-      <td style="border:1px solid #ccc;padding:5px 7px;width:22%"><b>نام محصول / خدمات:</b></td>
-      <td style="border:1px solid #ccc;padding:5px 7px">${esc(d.prod)}</td>
-      <td style="border:1px solid #ccc;padding:5px 7px;width:20%"><b>مشخصات سفارش (درخواست):</b></td>
-      <td style="border:1px solid #ccc;padding:5px 7px;width:14%;text-align:center">${esc(d.req)}</td></tr></table>
+      <td style="border:1px solid #999;padding:5px 7px;width:22%"><b>نام محصول / خدمات:</b></td>
+      <td style="border:1px solid #999;padding:5px 7px">${esc(d.prod)}</td>
+      <td style="border:1px solid #999;padding:5px 7px;width:20%"><b>مشخصات سفارش (درخواست):</b></td>
+      <td style="border:1px solid #999;padding:5px 7px;width:14%;text-align:center">${esc(d.req)}</td></tr></table>
     <div style="font-weight:800;font-size:11px;margin-bottom:4px">تامین کنندگان</div>
     <table style="font-size:10px"><thead><tr style="background:#eef2f8">
-      <th style="border:1px solid #ccc;padding:5px;width:34px">ردیف</th>
-      <th style="border:1px solid #ccc;padding:5px">نام تامین کننده</th>
-      <th style="border:1px solid #ccc;padding:5px;width:96px">قیمت</th>
-      <th style="border:1px solid #ccc;padding:5px;width:78px">شرایط تحویل/پرداخت</th>
-      <th style="border:1px solid #ccc;padding:5px;width:112px">نام و آدرس و تلفن</th>
-      <th style="border:1px solid #ccc;padding:5px;width:88px">سایر توضیحات</th>
+      <th style="border:1px solid #888;padding:5px;width:30px">ردیف</th>
+      <th style="border:1px solid #888;padding:5px;width:120px">نام تامین کننده</th>
+      <th style="border:1px solid #888;padding:5px;width:130px">قیمت</th>
+      <th style="border:1px solid #888;padding:5px;width:110px">شرایط تحویل/پرداخت</th>
+      <th style="border:1px solid #888;padding:5px;width:120px">نام و آدرس و تلفن</th>
+      <th style="border:1px solid #888;padding:5px;width:100px">سایر توضیحات</th>
     </tr></thead><tbody>${supRows}</tbody></table>
     <div style="margin-top:auto">
-      <div style="border:1px solid #333;border-radius:5px;padding:11px 13px;margin-top:30px;font-size:11px;line-height:2.2">
+      <div style="border:1.5px solid #222;border-radius:5px;padding:11px 13px;margin-top:14px;font-size:11px;line-height:2.2">
         <b>مدیر محترم عامل:</b><br>با سلام<br>
         احتراماً با عنایت به پیشنهادات ارائه شده لطفا دستور فرمایید:<br>
         <div style="margin:6px 0 0 0">${cb(d.ceo_buy)} خرید از شرکت <b>${esc(d.chosen.name||'............')}</b></div>
@@ -16057,7 +16083,7 @@ function buildInq3Print(d){
         <div>اقدام لازم به عمل آید.</div>
         <div style="text-align:left;margin-top:18px;font-weight:700">مدیر بازرگانی — امضا</div>
       </div>
-      <div style="border:1px solid #333;border-radius:5px;padding:11px 13px;margin-top:10px;font-size:11px;line-height:2.2">
+      <div style="border:1.5px solid #222;border-radius:5px;padding:11px 13px;margin-top:12px;font-size:11px;line-height:2.2">
         <b>مدیریت محترم بازرگانی:</b><br>با سلام<br>
         ${cb(d.ceo_approve)} با پیشنهاد مطرح شده موافقت می شود.
         <div style="text-align:left;margin-top:18px;font-weight:700">مدیر عامل — امضا</div>
@@ -16073,43 +16099,42 @@ function buildInq3Print(d){
       مورخ <b>${esc(d.date||'............')}</b>،
       گزارش بررسی های به عمل آمده درخصوص اقلام موردنیاز و تامین کنندگان به شرح ذیل ارائه می گردد:
     </div>
-    <div style="border:1px solid #333;border-radius:5px;padding:10px;min-height:112mm;font-size:10.5px;line-height:2;white-space:pre-wrap">${esc(d.tech_desc||'')}</div>
+    <div style="border:1.5px solid #222;border-radius:5px;padding:10px;min-height:112mm;font-size:10.5px;line-height:2;white-space:pre-wrap">${esc(d.tech_desc||'')}</div>
     <div style="font-size:10.5px;line-height:2.1;margin-top:10px">
       <b>اعضای محترم کمیسیون معاملات:</b><br>
       باتوجه به دلایل فوق، تامین اقلام از <b>${esc(d.chosen.name||'............')}</b> مورد تایید می باشد.
     </div>
     <div style="margin-top:auto">
-      <table style="font-size:10.5px;margin-top:12px"><thead><tr style="background:#eef2f8">
-        <th style="border:1px solid #ccc;padding:5px;width:34%">نام و نام خانوادگی</th>
-        <th style="border:1px solid #ccc;padding:5px">سمت</th>
-        <th style="border:1px solid #ccc;padding:5px;width:26%">امضاء</th>
+      <table style="font-size:10.5px;margin-top:14px"><thead><tr style="background:#eef2f8">
+        <th style="border:1px solid #999;padding:5px;width:34%">نام و نام خانوادگی</th>
+        <th style="border:1px solid #999;padding:5px">سمت</th>
+        <th style="border:1px solid #999;padding:5px;width:26%">امضاء</th>
       </tr></thead><tbody>
         ${[['tech_ex1','tech_role1'],['tech_ex2','tech_role2'],['tech_ex3','tech_role3']].map(([nk,rk],i)=>`<tr style="height:38px">
-          <td style="border:1px solid #ccc;text-align:center;font-weight:700">${esc(d[nk]||'')}</td>
-          <td style="border:1px solid #ccc;padding:2px 8px">${esc(d[rk]||'')}</td>
-          <td style="border:1px solid #ccc"></td></tr>`).join('')}
+          <td style="border:1px solid #999;text-align:center;font-weight:700">${esc(d[nk]||'')}</td>
+          <td style="border:1px solid #888;padding:2px 8px">${esc(d[rk]||'')}</td>
+          <td style="border:1px solid #888"></td></tr>`).join('')}
       </tbody></table>
-      <div style="font-size:9px;color:#666;margin-top:6px;border-top:1px solid #eee;padding-top:4px">شماره گزارش: ${esc(docNo)}</div>
     </div></div>`;
 
   // ── برگ ۳: صورتجلسه کمیسیون ──
   const commRows = d.suppliers.slice(0,4).map((x,i)=>`<tr style="height:28px;${x.selected&&x.name?'background:#EFF6FF;':''}">
-    <td style="text-align:center;border:1px solid #ccc">${i+1}</td>
-    <td style="border:1px solid #ccc;padding:2px 7px;text-align:center;font-weight:${x.selected&&x.name?'800':'400'}">${esc(x.name||'')}</td>
-    <td style="border:1px solid #ccc;text-align:center;padding:2px 7px;direction:ltr">${x.price?nf(x.price):''}</td></tr>`).join('');
+    <td style="text-align:center;border:1px solid #999">${i+1}</td>
+    <td style="border:1px solid #999;padding:2px 7px;text-align:center;font-weight:${x.selected&&x.name?'800':'400'}">${esc(x.name||'')}</td>
+    <td style="border:1px solid #999;text-align:center;padding:2px 7px;direction:ltr">${x.price?nf(x.price):''}</td></tr>`).join('');
   const members = [[d.ex1,'دبیر کمیسیون'],[d.ex3,'مدیر برنامه ریزی/ نماینده واحد درخواست کننده'],
                    [d.ex2,'مدیر مالی'],[d.ex4,'رئیس کمیسیون']];
   const p3 = `<div class="inq3-page">
     ${inq3Head(d,'صورتجلسه کمیسیون معاملات','۳ از ۳')}
     <table style="font-size:10.5px;margin-bottom:9px">
-      <tr><td style="border:1px solid #ccc;padding:4px 7px;width:19%"><b>موضوع:</b></td>
-          <td style="border:1px solid #ccc;padding:4px 7px" colspan="3">${esc(d.prod)}</td></tr>
-      <tr><td style="border:1px solid #ccc;padding:4px 7px"><b>زمان تشکیل جلسه:</b></td>
-          <td style="border:1px solid #ccc;padding:4px 7px;width:31%">${esc(d.comm_date||d.date)}</td>
-          <td style="border:1px solid #ccc;padding:4px 7px;width:19%"><b>محل تشکیل جلسه:</b></td>
-          <td style="border:1px solid #ccc;padding:4px 7px">${esc(d.comm_loc)}</td></tr>
-      <tr><td style="border:1px solid #ccc;padding:4px 7px"><b>واحد متقاضی:</b></td>
-          <td style="border:1px solid #ccc;padding:4px 7px" colspan="3">${esc(d.comm_dept)}</td></tr>
+      <tr><td style="border:1px solid #999;padding:4px 7px;width:19%"><b>موضوع:</b></td>
+          <td style="border:1px solid #999;padding:4px 7px" colspan="3">${esc(d.prod)}</td></tr>
+      <tr><td style="border:1px solid #999;padding:4px 7px"><b>زمان تشکیل جلسه:</b></td>
+          <td style="border:1px solid #999;padding:4px 7px;width:31%">${esc(d.comm_date||d.date)}</td>
+          <td style="border:1px solid #999;padding:4px 7px;width:19%"><b>محل تشکیل جلسه:</b></td>
+          <td style="border:1px solid #999;padding:4px 7px">${esc(d.comm_loc)}</td></tr>
+      <tr><td style="border:1px solid #999;padding:4px 7px"><b>واحد متقاضی:</b></td>
+          <td style="border:1px solid #999;padding:4px 7px" colspan="3">${esc(d.comm_dept)}</td></tr>
     </table>
     <div style="font-size:10.5px;line-height:2.1;margin-bottom:8px">
       پیرو درخواست طرح در جلسه کمیسیون معاملات به شماره <b>${esc(d.req||'......')}</b>
@@ -16117,11 +16142,11 @@ function buildInq3Print(d){
       پیشنهادات واصله به شرح جدول ذیل می باشد:
     </div>
     <table style="font-size:10.5px"><thead><tr style="background:#eef2f8">
-      <th style="border:1px solid #ccc;padding:5px;width:44px">ردیف</th>
-      <th style="border:1px solid #ccc;padding:5px">نام پیشنهاد تامین کننده</th>
-      <th style="border:1px solid #ccc;padding:5px;width:150px">مبلغ به عدد (ریال)</th>
+      <th style="border:1px solid #999;padding:5px;width:44px">ردیف</th>
+      <th style="border:1px solid #999;padding:5px">نام پیشنهاد تامین کننده</th>
+      <th style="border:1px solid #999;padding:5px;width:150px">مبلغ به عدد (ریال)</th>
     </tr></thead><tbody>${commRows}</tbody></table>
-    <div style="font-size:11.5px;line-height:2.3;margin-top:16px;border:1px solid #ccc;border-radius:6px;padding:14px 18px;background:#fff">
+    <div style="font-size:11.5px;line-height:2.3;margin-top:16px;border:1px solid #999;border-radius:6px;padding:14px 18px;background:#fff">
       با بررسی پیشنهادات مطرح شده / گزارش فنی و مهندسی به شماره <b>${esc(docNo)}</b>
       تاریخ <b>${esc(d.date||'......')}</b>، تامین اقلام مورد درخواست از
       <b>${esc(d.chosen.name||'............')}</b> به مبلغ
@@ -16129,15 +16154,15 @@ function buildInq3Print(d){
       ${d.comm_note?`<br><span style="font-size:10.5px;color:#555">${esc(d.comm_note)}</span>`:''}
     </div>
     <div style="margin-top:auto">
-      <table style="font-size:10.5px;margin-top:12px"><thead><tr style="background:#eef2f8">
-        <th style="border:1px solid #ccc;padding:5px;width:34%">نام و نام خانوادگی</th>
-        <th style="border:1px solid #ccc;padding:5px">سمت</th>
-        <th style="border:1px solid #ccc;padding:5px;width:26%">امضاء</th>
+      <table style="font-size:10.5px;margin-top:14px"><thead><tr style="background:#eef2f8">
+        <th style="border:1px solid #999;padding:5px;width:34%">نام و نام خانوادگی</th>
+        <th style="border:1px solid #999;padding:5px">سمت</th>
+        <th style="border:1px solid #999;padding:5px;width:26%">امضاء</th>
       </tr></thead><tbody>
-      ${members.map(([n,r])=>`<tr style="height:62px">
-        <td style="border:1px solid #ccc;text-align:center;font-weight:700">${esc(n||'')}</td>
-        <td style="border:1px solid #ccc;padding:2px 8px">${esc(r)}</td>
-        <td style="border:1px solid #ccc"></td></tr>`).join('')}
+      ${members.map(([n,r])=>`<tr style="height:72px">
+        <td style="border:1px solid #999;text-align:center;font-weight:700">${esc(n||'')}</td>
+        <td style="border:1px solid #999;padding:2px 8px">${esc(r)}</td>
+        <td style="border:1px solid #999"></td></tr>`).join('')}
       </tbody></table>
     </div></div>`;
   return p1 + p2 + p3;
@@ -17315,7 +17340,7 @@ function genPettyPrint(p){
     return `<tr style="height:22px"><td style="text-align:center">${i+1}</td><td style="text-align:center">${esc(it.date||'')}</td><td style="text-align:right;padding:0 6px">${esc(it.desc||'')}</td><td style="text-align:center">${esc(it.req_number||'')}</td><td class="num" style="text-align:center">${it.amount?nf(it.amount):''}</td><td class="num" style="text-align:center">${fee?nf(fee):''}</td><td style="text-align:right;padding:0 5px">${esc(it.note||'')}</td></tr>`;
   }).join('');
   const feeRowNo=items.length+1;
-  const feeRow=feeSum>0?`<tr style="height:22px;font-weight:700"><td style="text-align:center">${feeRowNo}</td><td style="text-align:center">${esc(lastDate)}</td><td style="text-align:right;padding:0 6px">جمع کارمزد انتقال وجه</td><td style="text-align:center">${esc(lastReq)}</td><td style="text-align:center">${nf(feeSum)}</td><td></td><td></td></tr>`:'';
+  const feeRow=feeSum>0?`<tr style="height:22px;font-weight:700"><td style="text-align:center">${feeRowNo}</td><td style="text-align:center">${esc(lastDate)}</td><td style="text-align:right;padding:0 6px">جمع کارمزد انتقال وجه</td><td style="text-align:center"></td><td style="text-align:center"></td><td style="text-align:center">${nf(feeSum)}</td><td></td></tr>`:'';
   const usedRows=items.length+(feeSum>0?1:0);
   const emptyCount=Math.max(0,FIXED_ROWS-usedRows);
   const emptyRows=Array.from({length:emptyCount},(_,i)=>`<tr style="height:22px"><td style="text-align:center">${usedRows+i+1}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`).join('');
@@ -17330,7 +17355,7 @@ function genPettyPrint(p){
     @page{size:A4 portrait;margin:10mm}
     html,body{height:100%}
     body{font-family:Tahoma,sans-serif;font-size:11px;margin:0;color:#000;
-         display:flex;flex-direction:column;min-height:96vh;justify-content:space-between;
+         display:flex;flex-direction:column;min-height:96vh;
          -webkit-print-color-adjust:exact;print-color-adjust:exact}
     .main-wrap{flex:1;display:flex;flex-direction:column}
     .hdr{display:flex;justify-content:space-between;align-items:center;border:1.5px solid #000;padding:6px}
@@ -18473,6 +18498,7 @@ function openInvoiceModal(id){
     sv('inv-date',todayJalali());const ia=document.getElementById('inv-amount');if(ia)ia.dataset.auto='1';
   }
   renderInvoiceReqOptions();
+  renderInvoiceReqManualTags();
   updateInvoiceAmountWarning();
   const elInv = document.getElementById('m-invoice'); if(elInv) elInv.style.zIndex = '260'; openModal('m-invoice');
 }
@@ -18510,6 +18536,29 @@ function renderInvoiceReqOptions(){
     <span style="flex:1;${textStyle}">${prefix}${esc(String(r.req))}</span><span style="color:#666">${esc(collapseRepeatedSupplierText(r.supplier)||'')}</span></label>`;
   }).join(''):'<div style="color:var(--muted)">درخواست یا قراردادی یافت نشد</div>';
 }
+function renderInvoiceReqManualTags(){
+  const box=document.getElementById('inv-req-manual-tags');
+  if(!box) return;
+  const manual=(_invSelectedReqs||[]).filter(x=>x && !(D.purchases||[]).some(p=>String(p.req_number)===String(x)) && !(D.contracts||[]).some(c=>String(c.number)===String(x)));
+  box.innerHTML=(manual.length?'انتخاب‌شده‌ی دستی: ':'')+manual.map(r=>`<span style="display:inline-block;background:#e0f2fe;border:1px solid #7dd3fc;border-radius:5px;padding:1px 7px;margin:2px">${esc(r)} <span style="cursor:pointer" onclick="removeInvoiceReqManual('${esc(r)}')">✕</span></span>`).join('');
+}
+function addInvoiceReqManual(){
+  const val=(v('inv-req-manual')||'').trim();
+  if(!val){ toast('شماره درخواست را وارد کنید','err'); return; }
+  if(!_invSelectedReqs.includes(val)) _invSelectedReqs.push(val);
+  sv('inv-req-manual','');
+  renderInvoiceReqManualTags();
+  renderInvoiceReqOptions();
+  onInvReqToggle({value:val,checked:true});
+}
+function removeInvoiceReqManual(val){
+  _invSelectedReqs=_invSelectedReqs.filter(x=>x!==val);
+  renderInvoiceReqManualTags();
+  renderInvoiceReqOptions();
+  const sups=selectedInvoiceSuppliers(_invSelectedReqs);
+  if(sups.length)sv('inv-supplier',sups.join('، '));
+}
+
 function onInvReqToggle(cb){
   const val=cb.value;
   if(cb.checked){ if(!_invSelectedReqs.includes(val))_invSelectedReqs.push(val); }
@@ -20339,7 +20388,7 @@ function genStatementPrint(c,st){
   <style>@page{size:A4;margin:14mm}body{font-family:Tahoma,sans-serif;font-size:12px;color:#111;margin:0}
     .hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0f2d5a;padding-bottom:8px;margin-bottom:14px}
     table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #999;padding:7px 9px;text-align:right}th{background:#eef2f8}
-    .sig{display:flex;justify-content:space-between;gap:10px;margin-top:30px;text-align:center;font-size:11px}.sig>div{flex:1;border:1px solid #333;border-radius:5px;padding:8px 4px}
+    .sig{display:flex;justify-content:space-between;gap:10px;margin-top:30px;text-align:center;font-size:11px}.sig>div{flex:1;border:1px solid #222;border-radius:5px;padding:8px 4px}
   </style></head><body>
   <div class="hdr">
     <img src="${logo}" style="height:82px;object-fit:contain">
@@ -21407,10 +21456,10 @@ function printAllNeedDeclarations(){ logSecurityEvent('print','need_declarations
         </table>
       </div>
       <div class="sig" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:15px;font-size:10.5px;text-align:center">
-        <div style="border:1px solid #333;border-radius:6px;padding:8px"><b>درخواست‌کننده</b><br><br><br>امضاء و تاریخ</div>
-        <div style="border:1px solid #333;border-radius:6px;padding:8px"><b>تاییدکننده (انبار)</b><br><br><br>امضاء و تاریخ</div>
-        <div style="border:1px solid #333;border-radius:6px;padding:8px"><b>تاییدکننده (مدیریت)</b><br><br><br>امضاء و تاریخ</div>
-        <div style="border:1px solid #333;border-radius:6px;padding:8px"><b>تحویل‌گیرنده (برنامه‌ریزی)</b><br><br><br>امضاء و تاریخ</div>
+        <div style="border:1px solid #222;border-radius:6px;padding:8px"><b>درخواست‌کننده</b><br><br><br>امضاء و تاریخ</div>
+        <div style="border:1px solid #222;border-radius:6px;padding:8px"><b>تاییدکننده (انبار)</b><br><br><br>امضاء و تاریخ</div>
+        <div style="border:1px solid #222;border-radius:6px;padding:8px"><b>تاییدکننده (مدیریت)</b><br><br><br>امضاء و تاریخ</div>
+        <div style="border:1px solid #222;border-radius:6px;padding:8px"><b>تحویل‌گیرنده (برنامه‌ریزی)</b><br><br><br>امضاء و تاریخ</div>
       </div>
     </div>`;
   }).join('');
@@ -22021,5 +22070,5 @@ try{ localStorage.removeItem('mehr_dark_mode'); }catch(e){}
 tryRestoreSession();
 
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a178f974da1ee459',t:'MTc4MzQ0OTU5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19bb36f28210a53',t:'MTc4MzgxMzcyNg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19ec765ab39cd17',t:'MTc4Mzg0NjAwMQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1a6bceeddd87757',t:'MTc4MzkyOTQ1OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2137d160c5bb8cc',t:'MTc4NTA2OTc5MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a28653e0d84a3649',t:'MTc4NjI3Mzk2Ng=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a178f974da1ee459',t:'MTc4MzQ0OTU5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19bb36f28210a53',t:'MTc4MzgxMzcyNg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a19ec765ab39cd17',t:'MTc4Mzg0NjAwMQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1a6bceeddd87757',t:'MTc4MzkyOTQ1OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2137d160c5bb8cc',t:'MTc4NTA2OTc5MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
