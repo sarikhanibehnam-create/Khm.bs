@@ -1248,6 +1248,17 @@ def reserved_nf_numbers(conn, exclude_purchase_id=None):
     return nums
 
 
+def next_nf_number(conn):
+    """[v143.1] شمارهٔ آزاد بعدی فرم عدم تحقق — محاسبهٔ سراسری روی کل سیستم
+    (نه دامنهٔ دید کاربر) تا پیشنهاد با نگهبان یکتایی هم‌خوان باشد."""
+    mx = 0
+    for s in reserved_nf_numbers(conn):
+        try:
+            mx = max(mx, int(str(s).strip()))
+        except (TypeError, ValueError):
+            pass
+    return mx + 1 if mx else 1
+
 def submitted_nf_numbers(body, line_items):
     """شماره‌های فرم عدم تحققِ درخواست در حال ثبت/ویرایش (سربرگ + قلم‌ها)."""
     nums = set()
@@ -1779,6 +1790,9 @@ class Handler(BaseHTTPRequestHandler):
             'supply_plans': get_docs(conn, 'supply_plans'),
             'need_declarations': get_docs(conn, 'need_declarations'),
             'nf_records': get_docs(conn, 'nf_records'),   # [v125] بایگانی عدم تحقق
+            # [v143.1] شمارهٔ آزاد بعدی فرم عدم تحقق (سراسری — برای پیشنهاد خودکار)
+            'nf_next_number': next_nf_number(conn),
+            'server_build': 'v144',   # نسخهٔ ساخت سرور — برای نمایش در نشان نسخه
             # [v125] petty_tracking در جدول settings ذخیره می‌شود ولی فرانت آن را
             # در سطح بالا (D.petty_tracking) می‌خواند. پیش‌تر ارسال نمی‌شد و
             # همیشه خالی می‌ماند؛ داده‌اش فقط از نسخه سخت‌کد می‌آمد.
@@ -2757,6 +2771,10 @@ class Handler(BaseHTTPRequestHandler):
                 sub_nf = submitted_nf_numbers(body, line_items)
                 if sub_nf:
                     conflicts = sorted(sub_nf & reserved_nf_numbers(conn, exclude_purchase_id=int(rid)))
+                    # [v143.1] استثنای دادهٔ تاریخی: شماره‌ای که پیش از ویرایش هم روی
+                    # همین خرید بوده (تکرار قدیمی به‌ارث‌رسیده) نباید قفل ویرایش کند؛
+                    # فقط ساخت «تکرار جدید» ممنوع است تا راه اصلاح باز بماند.
+                    conflicts = [c for c in conflicts if c not in _old_nf_nums]
                     if conflicts:
                         self.send_json({'ok': False, 'nf_duplicate': True,
                                         'error': 'شماره فرم عدم تحقق ' + '، '.join(conflicts) +
