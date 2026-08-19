@@ -1780,14 +1780,45 @@ input[readonly]{background:#f8fafc!important;color:var(--benora-gray-500)!import
   color:#071A34!important;
   font-size:13.2px!important;
 }
+/* [v40] جدول اصلی مالی: عرض ثابت ستون‌ها + اعداد راست‌چین زیر عنوان */
+#page-financial .panel > .tw > table{
+  table-layout:fixed!important;
+  width:100%!important;
+}
+#page-financial .panel > .tw > table thead th:nth-child(1),
+#page-financial #f-sup td:nth-child(1){width:14%!important;}
+#page-financial .panel > .tw > table thead th:nth-child(2),
+#page-financial #f-sup td:nth-child(2),
+#page-financial .panel > .tw > table thead th:nth-child(3),
+#page-financial #f-sup td:nth-child(3),
+#page-financial .panel > .tw > table thead th:nth-child(4),
+#page-financial #f-sup td:nth-child(4),
+#page-financial .panel > .tw > table thead th:nth-child(5),
+#page-financial #f-sup td:nth-child(5){width:12%!important;}
+#page-financial .panel > .tw > table thead th:nth-child(6),
+#page-financial #f-sup td:nth-child(6){width:9%!important;text-align:center!important;}
+#page-financial .panel > .tw > table thead th:nth-child(7),
+#page-financial #f-sup td:nth-child(7){width:13%!important;text-align:center!important;}
+#page-financial .panel > .tw > table thead th:nth-child(8),
+#page-financial #f-sup td:nth-child(8){width:14%!important;text-align:center!important;}
+/* [v40] عنوان‌ها rtl می‌مانند (فلش ↕ چپِ متن بماند)؛ فقط خودِ عدد ltr+راست‌چین */
+#page-financial .panel > .tw > table thead th:nth-child(2),
+#page-financial .panel > .tw > table thead th:nth-child(3),
+#page-financial .panel > .tw > table thead th:nth-child(4),
+#page-financial .panel > .tw > table thead th:nth-child(5){
+  direction:rtl!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+}
 #page-financial #f-sup td:nth-child(2),
 #page-financial #f-sup td:nth-child(3),
 #page-financial #f-sup td:nth-child(4),
 #page-financial #f-sup td:nth-child(5){
-  direction:ltr;
-  text-align:left;
+  direction:ltr!important;
+  text-align:right!important;
   font-weight:820!important;
-  white-space:nowrap;
+  white-space:nowrap!important;
+  font-variant-numeric:tabular-nums;
 }
 #page-financial #f-sup td:last-child{
   white-space:nowrap;
@@ -1823,15 +1854,57 @@ input[readonly]{background:#f8fafc!important;color:var(--benora-gray-500)!import
   border:1px solid #DDE6F2!important;
   box-shadow:0 6px 18px rgba(15,35,70,.045)!important;
 }
-#sup-detail-pay tr td:nth-child(2),
-#sup-detail-tb tr td:nth-child(4),
-#sup-detail-tb tr td:nth-child(5),
-#sup-detail-tb tr td:nth-child(6){
-  direction:ltr;
-  text-align:left;
-  white-space:nowrap;
-  font-weight:760!important;
+/* [v40] جزئیات تأمین‌کننده: عرض ثابت + اعداد دقیقاً زیر عنوان */
+#sup-detail-panel .tw > table{
+  table-layout:fixed!important;
+  width:100%!important;
 }
+/* جدول خریدهای جزئیات */
+#sup-detail-panel table:has(#sup-detail-tb) thead th:nth-child(1),
+#sup-detail-tb td:nth-child(1){width:10%!important;text-align:center!important;}
+#sup-detail-panel table:has(#sup-detail-tb) thead th:nth-child(2),
+#sup-detail-tb td:nth-child(2){width:34%!important;}
+#sup-detail-panel table:has(#sup-detail-tb) thead th:nth-child(3),
+#sup-detail-tb td:nth-child(3){width:11%!important;text-align:center!important;direction:ltr!important;}
+#sup-detail-panel table:has(#sup-detail-tb) thead th:nth-child(4),
+#sup-detail-panel table:has(#sup-detail-tb) thead th:nth-child(5),
+#sup-detail-panel table:has(#sup-detail-tb) thead th:nth-child(6){
+  width:15%!important;
+  direction:rtl!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+}
+#sup-detail-tb td:nth-child(4),
+#sup-detail-tb td:nth-child(5),
+#sup-detail-tb td:nth-child(6){
+  width:15%!important;
+  direction:ltr!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+  font-weight:760!important;
+  font-variant-numeric:tabular-nums;
+}
+/* جدول واریزهای جداگانه */
+#sup-detail-panel table:has(#sup-detail-pay) thead th:nth-child(1),
+#sup-detail-pay td:nth-child(1){width:14%!important;text-align:center!important;direction:ltr!important;}
+#sup-detail-panel table:has(#sup-detail-pay) thead th:nth-child(2){
+  width:18%!important;
+  direction:rtl!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+}
+#sup-detail-pay td:nth-child(2){
+  width:18%!important;
+  direction:ltr!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+  font-weight:760!important;
+  font-variant-numeric:tabular-nums;
+}
+#sup-detail-panel table:has(#sup-detail-pay) thead th:nth-child(3),
+#sup-detail-pay td:nth-child(3){width:58%!important;}
+#sup-detail-panel table:has(#sup-detail-pay) thead th:nth-child(4),
+#sup-detail-pay td:nth-child(4){width:10%!important;text-align:center!important;}
 #sup-detail-net{
   margin:0 16px 16px!important;
   padding:14px 18px!important;
@@ -4452,7 +4525,6 @@ if(location.protocol==='file:'){
       <div class="fgroup"><label>شماره درخواست <span class="req">*</span></label>
         <div class="acw"><input type="text" id="p-rn" placeholder="شماره درخواست" oninput="acReqSearch(this.value)" autocomplete="off"><div class="acl" id="ac-rn"></div></div>
       </div>
-      <div class="fgroup"><label>تاریخ فاکتور</label><input class="jdate" type="text" id="p-id" placeholder="۱۴۰۳/۰۱/۰۱"></div>
       <div class="fgroup"><label>تاریخ تحویل (نیاز)</label><input class="jdate" type="text" id="p-dd" placeholder="۱۴۰۳/۰۱/۰۱"></div>
       <div class="fgroup"><label>کارشناس <span class="req">*</span></label><select id="p-ex"><option value="">انتخاب</option></select></div>
       <div class="fgroup fg-s2"><label>نام تامین‌کننده (قابل جستجو)</label>
@@ -4913,9 +4985,10 @@ if(location.protocol==='file:'){
       <div class="fgroup"><label>تاریخ</label><input class="jdate" type="text" id="sl-date" autocomplete="off"></div>
     </div>
     <div class="fg2">
-      <div class="fgroup"><label>مشتری / طرف قرارداد</label><input type="text" id="sl-customer" placeholder="نام شرکت یا شخص" list="sl-sup-list" autocomplete="off"><datalist id="sl-sup-list"></datalist></div>
+      <div class="fgroup"><label>مشتری / طرف قرارداد</label><div class="acw"><input type="text" id="sl-customer" placeholder="نام شرکت یا شخص — تایپ کنید برای جستجو" autocomplete="off" oninput="supACSearch(this)"><div class="acl"></div></div></div>
       <div class="fgroup"><label>تهاتر با تامین‌کننده <span style="font-size:10px;color:var(--muted)">(اگر بخشی از بدهی تهاتر می‌شود)</span></label>
-        <select id="sl-offset"><option value="">— بدون تهاتر (نقدی) —</option></select>
+        <div class="acw"><input type="text" id="sl-offset" placeholder="— بدون تهاتر (نقدی) — تایپ کنید برای جستجو" autocomplete="off" oninput="supACSearch(this)"><div class="acl"></div></div>
+        <div id="sl-offset-hint" style="display:none;margin-top:5px"></div>
       </div>
     </div>
     <div class="fg2">
@@ -5027,6 +5100,18 @@ if(location.protocol==='file:'){
     </div>
   </div>
 </div>
+
+<style>
+/* [v35] پنل جزئیات تأمین‌کننده: اقلام چندخطی فشرده + برچسب ردیف‌های بدون شماره */
+.fin-it-cell{max-width:360px;vertical-align:top}
+.fin-it-first{line-height:1.9}
+.fin-it-more{cursor:pointer;color:var(--navy);background:#eef2f8;border:1px solid var(--border);
+  border-radius:999px;padding:1px 8px;font-size:10.5px;white-space:nowrap;display:inline-block;margin-inline-start:4px}
+.fin-it-more:hover{background:#dbe4f0}
+.fin-it-full{margin-top:6px;font-size:11px;color:#475569;line-height:2;background:#f8fafc;
+  border:1px dashed var(--border);border-radius:8px;padding:6px 9px;word-break:break-word}
+.fin-noreq-badge{background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 8px;font-size:10.5px;white-space:nowrap}
+</style>
 
 <!-- FINANCIAL: supplier balances -->
 <div id="page-financial" class="page">
@@ -6191,11 +6276,6 @@ if(location.protocol==='file:'){
   </div>
 </div>
 
-    </div>
-  </div>
-</div>
-
-
 <!-- DATA HEALTH: بررسی ناسازگاری و تکرار داده‌ها (فقط گزارش، بدون اصلاح خودکار) -->
 <div id="page-data-health" class="page">
   <div class="panel">
@@ -6214,7 +6294,27 @@ if(location.protocol==='file:'){
       <tbody id="dh-tb"></tbody>
     </table></div>
   </div>
+
+  <div class="panel" id="dh-supdups-panel" style="margin-top:14px">
+    <div class="ph"><div>
+      <div class="ph-t">ادغام خودکار تأمین‌کننده‌های هم‌نام 🧬</div>
+      <div class="ph-s">نام‌هایی که با حذف «شرکت/فروشگاه/گروه/…» یکی می‌شوند را از همه‌ی سیستم پیدا می‌کند؛ با تأیید شما همه‌ی سوابق (خرید، پرداخت، فاکتور، قرارداد، تهاتر فروش و مانده اول دوره) به نام اصلی منتقل و نام‌های اضافی برای همیشه حذف می‌شوند</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="dhScanSupplierDups()">🔍 بررسی نام‌های هم‌نام</button>
+      <button class="btn btn-navy btn-sm" id="dh-dups-apply" style="display:none" onclick="dhApplySupplierDups()">⚡ ادغام گروه‌های انتخاب‌شده (پشتیبان خودکار)</button>
+    </div></div>
+    <div style="padding:10px 18px;font-size:11.5px;color:var(--muted);line-height:1.9;background:#f8fafc;border-bottom:1px solid var(--border)">
+      قبل از هر ادغام، سرور به‌طور خودکار یک پشتیبان کامل از دیتابیس می‌گیرد. بعد از ادغام، اگر کسی نام قدیمی را در فرم‌ها تایپ کند، سرور خودش آن را به نام اصلی تبدیل می‌کند و نام تکراری دوباره ساخته نمی‌شود. گروه‌هایی که پرچم «تعارض» دارند پیش‌فرض بدون تیک‌اند؛ اول دستی بررسی‌شان کنید.
+    </div>
+    <div id="dh-dups-body" style="padding:14px 18px;font-size:12.5px;color:var(--muted)">برای شروع، «بررسی نام‌های هم‌نام» را بزنید.</div>
+  </div>
 </div>
+
+    </div>
+  </div>
+</div>
+
 
 <!-- MODAL: ثبت درخواست -->
 <div class="overlay" id="m-req"><div class="modal modal-sm">
@@ -6268,6 +6368,7 @@ if(location.protocol==='file:'){
     <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:10px;font-size:12px;color:var(--muted)">
       نام فایل به‌صورت <b>backup-تاریخ-ساعت.json</b> ساخته می‌شود.
       <div id="backup-last-info" style="margin-top:6px;color:var(--navy);font-weight:700">آخرین بک‌آپ: —</div>
+      <div id="backup-server-info" style="margin-top:8px"></div>
     </div>
     <div style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
       <div style="font-weight:700;color:var(--navy);margin-bottom:6px">⚙️ پشتیبان‌گیری از ادغام‌ها و حذفیات شما</div>
@@ -6459,9 +6560,8 @@ if(location.protocol==='file:'){
   <div class="mh"><div class="mt">ثبت واریز به تامین‌کننده</div><button class="btn btn-ghost" onclick="closeModal('m-pay')">✕</button></div>
   <div class="fg fg2" style="padding:18px">
     <div class="fgroup fg-full"><label>تامین‌کننده <span class="req">*</span></label>
-      <input type="text" id="pay-sp" list="pay-sp-list" placeholder="نام تامین‌کننده را تایپ کنید یا از پیشنهادها انتخاب کنید" autocomplete="off">
-      <datalist id="pay-sp-list"></datalist>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">امکان تایپ دستی وجود دارد؛ لیست کامل به‌صورت کشویی باز نمی‌شود.</div>
+      <div class="acw"><input type="text" id="pay-sp" placeholder="نام تامین‌کننده را تایپ کنید (جستجوی هوشمند)" autocomplete="off" oninput="supACSearchKnown(this)"><div class="acl"></div></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">امکان تایپ دستی وجود دارد؛ با تایپ چند کلمه، نزدیک‌ترین نام‌ها پیشنهاد می‌شوند.</div>
     </div>
     <div class="fgroup"><label>مبلغ (ریال) <span class="req">*</span></label><input type="text" id="pay-amt" placeholder="۰" oninput="fmtN(this)"></div>
     <div class="fgroup"><label>تاریخ</label><input type="text" id="pay-dt" placeholder="۱۴۰۳/۰۱/۰۱"></div>
@@ -6962,8 +7062,8 @@ function handleAuthExpiry(status){
   }
   return false;
 }
-const APP_VERSION = 24;
-const SERVER_BUILD_EXPECT = 'v144';
+const APP_VERSION = 40;
+const SERVER_BUILD_EXPECT = 'v151';
 function updateVersionBadge(){
   const vb = document.getElementById('app-version-badge'); if(!vb) return;
   const sb = (typeof D !== 'undefined' && D.server_build) || '';
@@ -7254,6 +7354,10 @@ const PurchaseStore={
 let editPID = null;
 let editGroupReq = null;
 let editGroupIds = [];
+// [v37] فیلد «تاریخ فاکتور» از فرم خرید حذف شد؛ تاریخ فاکتور فقط از «ثبت فاکتور و مدارک»
+// به‌صورت خودکار پر می‌شود. این متغیر مقدار فعلی رکوردِ درحال‌ویرایش را نگه می‌دارد تا
+// با ذخیره‌ی فرم، تاریخ فاکتورِ قبلی پاک نشود.
+let _pFormInvDate = '';
 let _closeNoShipPending = false;  // [v9] تیک «بستن و تکمیل درخواست» — بعد از ذخیره، درخواست بسته می‌شود
 let editGroupDeleteIds = [];
 let lineItemCount = 0;
@@ -7654,7 +7758,9 @@ async function saveAllServerSettings(){
   D.settings.dismissed_nfs = JSON.parse(localStorage.getItem(DISMISSED_NF_KEY) || '[]');
   D.settings.supplier_rename_map = JSON.parse(localStorage.getItem(SUP_MAP_KEY) || '{}');
   try { D.settings.hidden_experts = JSON.parse(localStorage.getItem('hidden_experts') || '[]'); } catch(e){}
-  try { D.settings.opening_balances = JSON.parse(localStorage.getItem('opening_balances') || '{}'); } catch(e){}
+  // [v33] opening_balances از این مسیر حذف شد: ۱) مسیر تنظیمات عمومی مجوز manage_lists
+  // می‌خواهد و برای بقیه بی‌صدا شکست می‌خورد، ۲) نسخه کهنه localStorage هر مرورگر می‌تواند
+  // مقدار جدیدتر سرور را بازنویسی کند. مسیر امن: endpoint اختصاصی opening_balances.
   try {
     if (CU && CU.name) {
       const mySticky = localStorage.getItem('mehr_sticky_' + CU.name);
@@ -7670,16 +7776,10 @@ async function saveAllServerSettings(){
     try { await post('settings', D.settings); } catch(e2) {}
   }
   
-  // [v125] هک tunnelSave حذف شد.
-  // چه بود: تنظیمات را به‌صورت JSON داخل فیلد «آدرس» یک تامین‌کننده ساختگی
-  // با پیشوند SEC_..._v1 ذخیره می‌کرد، چون سرور آن زمان این کلیدها را
-  // نمی‌شناخت و بی‌صدا دور می‌ریخت.
-  // چرا حذف شد: از نسخه ۱۱۱ سرور همه این کلیدها را واقعا ذخیره می‌کند.
-  // هک باقی‌مانده هر بار ۶ تامین‌کننده ساختگی در دیتابیس می‌ساخت و ذخیره
-  // تنظیمات را از ۲ درخواست به ۱۴ درخواست می‌رساند (۶.۱ ثانیه اندازه‌گیری شد).
-  try {
-    await post('settings/inquiry_three_page', {inquiry_three_page: D.inquiry_three_page || []});
-  } catch(e) { console.warn('ذخیره استعلام سه برگی ناموفق بود', e); }
+  // [v28] استعلام سه‌برگی دیگر از این مسیر (ارسال کل آرایه در تنظیمات) ذخیره نمی‌شود؛
+  // چون ۱) نیاز به مجوز manage_lists داشت و برای کارشناسان شکست می‌خورد،
+  // ۲) هر مرورگر نسخهٔ محلی کل آرایه را می‌فرستاد و رکوردهای تازهٔ بقیه را بازنویسی می‌کرد.
+  // مسیر امن جدید: post('inquiry_three_page', رکورد) در saveInq3Form و del در deleteInq3.
 }
 
 async function updatePurchaseIdReferences(oldPid, newPid){
@@ -7954,11 +8054,13 @@ function canonicalSupplierName(name){
     'فولاد  فام':'فولاد فام','فولاد فام':'فولاد فام',
     'پیشروآریا فوم':'پیشرو آریا فوم','پیشرو آریا فوم':'پیشرو آریا فوم',
     'پیشرو آریا فوم پارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'پیشرواریا فوم پارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'شرکت پیشرو آریا فوم پارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'شرکت پیشرو اریافوم پارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'شرکت میشرک آریا فوم پارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'شرکت میشرک اریافوم پارسیان':'شرکت پیشرو آریا فوم پارسیان'
+    // [v38] نام کوتاه ملاک شد: خریدها/فاکتورها «پیشرو آریا فوم» هستند؛ نگاشت به نام
+    // بلند حقوقی باعث می‌شد مانده افتتاحیه (شرکت … پارسیان) ردیف دوم جدا بسازد.
+    'پیشرواریا فوم پارسیان':'پیشرو آریا فوم',
+    'شرکت پیشرو آریا فوم پارسیان':'پیشرو آریا فوم',
+    'شرکت پیشرو اریافوم پارسیان':'پیشرو آریا فوم',
+    'شرکت میشرک آریا فوم پارسیان':'پیشرو آریا فوم',
+    'شرکت میشرک اریافوم پارسیان':'پیشرو آریا فوم'
   };
   if(alias[n])return alias[n];
   const k=supplierCanonicalKey(n);
@@ -7976,10 +8078,12 @@ function canonicalSupplierName(name){
     'برازش':'برازش صنعت','برازشصنعت':'برازش صنعت',
     'فولادفام':'فولاد فام',
     'پیشرواریافوم':'پیشرو آریا فوم',
-    'پیشرواریافومپارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'پیشروآریافومپارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'میشرکاریافومپارسیان':'شرکت پیشرو آریا فوم پارسیان',
-    'مشرکاریافومپارسیان':'شرکت پیشرو آریا فوم پارسیان'
+    // [v38] «سپند پلیمر پیشرو»/«سپند پیشرو پلیمر» هم دو املای یک تأمین‌کننده است
+    'سپندپیشروپلیمر':'سپند پلیمر پیشرو',
+    'پیشرواریافومپارسیان':'پیشرو آریا فوم',
+    'پیشروآریافومپارسیان':'پیشرو آریا فوم',
+    'میشرکاریافومپارسیان':'پیشرو آریا فوم',
+    'مشرکاریافومپارسیان':'پیشرو آریا فوم'
   };
   if(keyAlias[k])return keyAlias[k];
   if(k.includes('اراز') && k.includes('چسب'))return 'آراز برچسب';
@@ -8216,9 +8320,40 @@ function purchaseAmountOf(p){
   }
   return final || inv;
 }
-function pettyPaymentEntries(){
+// [v39] تقسیم مبلغ خرید بین تأمین‌کننده‌ها به‌صورت ردیف‌به‌ردیف: هر ردیف که
+// تأمین‌کنندهٔ متفاوت از سربرگ دارد، سهم خودش (متناسب با تخفیف/ارزش‌افزوده) به
+// حساب همان تأمین‌کننده می‌رود؛ ردیف‌های بدون تأمین‌کنندهٔ خاص به سربرگ می‌چسبند.
+function purchaseAmountBySupplier(p){
+  const res={};
+  if(!p) return res;
+  const headSup=(canonicalSupplierName(p.supplier)||'')!=='—'?canonicalSupplierName(p.supplier):'—';
+  const lines=(p.line_items&&p.line_items.length)?p.line_items:[p];
+  const effAmounts=lines.map(li=>{
+    const q=normalizeQtyNumber(li&&li.qty);
+    const up=moneyNumber(li&&li.unit_price);
+    const lineTot=moneyNumber(li&&li.total) || ((q>0&&up>0)?q*up:0);
+    const eff=effectiveLineQty(li,p);
+    return (q>0 && eff<q) ? Math.round(lineTot*eff/q) : lineTot;
+  });
+  const full=effAmounts.reduce((s,x)=>s+x,0);
+  const total=purchaseAmountOf(p);
+  if(full<=0){ if(total>0 && headSup!=='—') res[headSup]=total; return res; }
+  lines.forEach((li,i)=>{
+    const cn=canonicalSupplierName((li&&li.supplier)||'');
+    const ls=(cn&&cn!=='—')?cn:headSup;
+    const share=Math.round(total*effAmounts[i]/full);
+    if(ls==='—')return;
+    res[ls]=(res[ls]||0)+share;
+  });
+  // اصلاح خطای گردکردن: باقی‌ماندهٔ چند ریالی به سربرگ برمی‌گردد تا جمع دقیق شود
+  const sum=Object.values(res).reduce((s,x)=>s+x,0);
+  const diff=total-sum;
+  if(diff!==0 && headSup!=='—') res[headSup]=(res[headSup]||0)+diff;
+  return res;
+}
+function pettyPaymentEntries(srcPetty){
   const entries=[];
-  (D.petty_cash||[]).forEach(pc=>{
+  ((srcPetty||D.petty_cash)||[]).forEach(pc=>{
     (pc.items||[]).forEach((it,idx)=>{
       const reqs=extractReqNumbersFromText(it.req_number,it.desc,it.note);
       if(!reqs.length)return;
@@ -8230,21 +8365,25 @@ function pettyPaymentEntries(){
   });
   return entries;
 }
-function pettyPaidForReq(reqNo){
-  return pettyPaymentEntries().filter(e=>String(e.req_number)===String(reqNo)).reduce((s,e)=>s+moneyNumber(e.amount),0);
+function pettyPaidForReq(reqNo, srcPetty){
+  // [v35] خریدهای بدون شماره درخواست نباید تنخواهِ بدون شماره را به خود بچسبانند
+  if(reqNo===undefined||reqNo===null||String(reqNo).trim()===''||String(reqNo).trim()==='—')return 0;
+  return pettyPaymentEntries(srcPetty).filter(e=>String(e.req_number)===String(reqNo)).reduce((s,e)=>s+moneyNumber(e.amount),0);
 }
-function pettySupplierPayments(){
+function pettySupplierPayments(srcPetty, srcPurchases){
   const rows=[];
-  pettyPaymentEntries().forEach(e=>{
-    const purs=purchaseRowsByReq(e.req_number);
+  pettyPaymentEntries(srcPetty).forEach(e=>{
+    // [v38] در نمای مالیِ «همهٔ تأمین‌کننده‌ها»، خریدها هم از دامنهٔ کامل خوانده می‌شوند
+    const purs=srcPurchases ? srcPurchases.filter(p=>String(p.req_number||'').trim()===String(e.req_number).trim())
+                            : purchaseRowsByReq(e.req_number);
     if(!purs.length)return;
+    // [v39] سهم هر تأمین‌کننده ردیف‌به‌ردیف محاسبه می‌شود (نه کل خرید به نام سربرگ)
     const bySup={};let total=0;
     purs.forEach(p=>{
-      const sup=canonicalSupplierName(p.supplier);
-      if(!sup||sup==='—')return;
-      const amt=purchaseAmountOf(p);
-      if(amt<=0)return;
-      bySup[sup]=(bySup[sup]||0)+amt;total+=amt;
+      Object.entries(purchaseAmountBySupplier(p)).forEach(([sup,amt])=>{
+        if(!sup||sup==='—'||amt<=0)return;
+        bySup[sup]=(bySup[sup]||0)+amt;total+=amt;
+      });
     });
     Object.entries(bySup).forEach(([sup,amt])=>{
       const alloc=total>0?e.amount*(amt/total):0;
@@ -8280,25 +8419,27 @@ function finance3Rows(q){
     return rows[sup];
   };
   
-  // خریدهای درخواستی عادی
-  (D.purchases||[]).filter(p=>!FYEAR||yearMatches(p.inv_date||p.date)).forEach(p=>{
-    const r=ensure(p.supplier);if(!r)return;
-    r.commitment+=purchaseAmountOf(p);
+  // خریدهای درخواستی عادی — [v39] مبلغ هر خرید ردیف‌به‌ردیف بین تأمین‌کننده‌ها پخش می‌شود
+  (finScopeColl('purchases')||D.purchases||[]).filter(p=>!FYEAR||yearMatches(purchaseFYDate(p))).forEach(p=>{
+    Object.entries(purchaseAmountBySupplier(p)).forEach(([sup,amt])=>{
+      const r=ensure(sup);if(!r||!amt)return;
+      r.commitment+=amt;
+    });
   });
   
   // ادغام قراردادها در تعهدات و پرداخت‌های تامین‌کننده
-  (D.contracts||[]).forEach(c=>{
+  (finScopeColl('contracts')||D.contracts||[]).forEach(c=>{
     const r=ensure(c.party||c.supplier);if(!r)return;
     const contractAmt = typeof contractAmountEffective==='function' ? contractAmountEffective(c) : parseFloat(c.amount||0);
     r.commitment += contractAmt;
-    
+
     // مبلغ افتتاحیه پرداخت‌های قبلی قرارداد
     const openingPaid = parseFloat(c.opening_paid||0);
     r.debt += openingPaid;
     r.paid += openingPaid;
-    
+
     // صورت‌وضعیت‌های مستقیم قرارداد
-    const pays = (D.contract_payments||[]).filter(p=>p.contract_id===c.id);
+    const pays = (finScopeColl('contract_payments')||D.contract_payments||[]).filter(p=>p.contract_id===c.id);
     const statementPaidSum = pays.reduce((s,p)=>s+parseFloat(p.net||p.gross||0),0);
     r.debt += statementPaidSum;
     r.paid += statementPaidSum;
@@ -8310,7 +8451,7 @@ function finance3Rows(q){
     r.opening=ob;
     if(ob.type==='credit')r.paid+=amt;else r.debt+=amt;
   });
-  (D.invoice_docs||[]).forEach(inv=>{
+  (finScopeColl('invoice_docs')||D.invoice_docs||[]).forEach(inv=>{
     const r=ensure(inv.supplier);if(!r)return;
     const ob=r.opening;
     const dt=inv.delivered_date||inv.invoice_date||'';
@@ -8318,16 +8459,25 @@ function finance3Rows(q){
       r.debt+=invoiceFinalAmount(inv);r.invoice_count++;
     }
   });
-  (D.supplier_payments||[]).forEach(pay=>{
+  (finScopeColl('supplier_payments')||D.supplier_payments||[]).forEach(pay=>{
     const r=ensure(pay.supplier);if(!r)return;
     if((!FYEAR||yearMatches(pay.date)) && dateAfterOpening(pay.date,r.opening))r.paid+=moneyNumber(pay.amount);
   });
-  pettySupplierPayments().forEach(pp=>{
+  pettySupplierPayments(finScopeColl('petty_cash'), finScopeColl('purchases')).forEach(pp=>{
     const r=ensure(pp.supplier);if(!r)return;
     if((!FYEAR||yearMatches(pp.date)) && dateAfterOpening(pp.date,r.opening)){r.paid+=moneyNumber(pp.amount);r.petty_paid+=moneyNumber(pp.amount);}
   });
   let list=Object.values(rows).map(r=>({...r,balance:r.debt-r.paid}));
-  if(q){const qq=faNorm(q);list=list.filter(r=>faNorm(r.supplier).includes(qq));}
+  if(q){
+    // [v32] ابتدا تطابق دقیق نام شرکت (با نام‌های معادل)؛ «برازش» فقط «برازش صنعت» را می‌آورد نه «کرایه حمل برازش» را
+    const qk=canonSupKey(q==q.trim()?q:q.trim());
+    const exact=(qk&&qk!=='—')?list.filter(r=>canonSupKey(r.supplier)===qk):[];
+    if(exact.length){ list=exact; }
+    else{
+      const toks=faToEn(faNorm(q)).split(' ').filter(Boolean);
+      list=list.filter(r=>{const n=faToEn(faNorm(r.supplier));return toks.every(t=>n.includes(t));});
+    }
+  }
   list.sort((a,b)=>Math.abs(b.balance)-Math.abs(a.balance));
   return list;
 }
@@ -8352,10 +8502,14 @@ async function saveOpeningBalance(){
   const amt=moneyNumber(v('ob-amount'));
   if(!sup||sup==='—'||!amt){toast('تامین‌کننده و مبلغ الزامی است','err');return;}
   const ob={supplier:sup,type:v('ob-type')||'debt',amount:amt,date:v('ob-date')||todayJalali(),note:v('ob-note'),_actor:CU.name};
+  // [v33] ذخیره امن روی سرور با endpoint اختصاصی (مجوز register_payment). پیش از این از
+  // مسیر تنظیمات عمومی می‌رفت و برای کاربر بدون manage_lists بی‌صدا فقط در مرورگر می‌ماند.
+  let r=null;
+  try{ r=await post('opening_balances',ob); }catch(e){ r=null; }
+  if(!r || r.ok===false){ toast('ذخیره مانده افتتاحیه ناموفق بود: '+((r&&r.error)||'پاسخی از سرور نیامد'),'err'); return; }
   openingBalances()[sup]=ob;
   try{localStorage.setItem('opening_balances',JSON.stringify(openingBalances()));}catch(e){}
   D.settings = D.settings || {}; D.settings.opening_balances = openingBalances();
-  saveAllServerSettings();
   closeModal('m-opening');renderFin();toast('مانده افتتاحیه ذخیره شد ✓','ok');
 }
 async function deleteOpeningBalance(){
@@ -8364,10 +8518,13 @@ async function deleteOpeningBalance(){
   if(!confirm('آیا مانده افتتاحیه این تامین‌کننده حذف شود؟'))return;
   const obs=openingBalances();
   if(obs[sup]){
+    // [v33] حذف از همان endpoint امن
+    let r=null;
+    try{ r=await del('opening_balances/'+encodeURIComponent(sup)); }catch(e){ r=null; }
+    if(r && r.ok===false){ toast('حذف مانده افتتاحیه ناموفق بود: '+(r.error||''),'err'); return; }
     delete obs[sup];
     try{localStorage.setItem('opening_balances',JSON.stringify(obs));}catch(e){}
     D.settings = D.settings || {}; D.settings.opening_balances = obs;
-    saveAllServerSettings();
   }
   closeModal('m-opening');renderFin();toast('مانده افتتاحیه با موفقیت حذف شد ✓','ok');
 }
@@ -9114,6 +9271,42 @@ function uniqueDashboardPurchaseRows(rows){
   });
 }
 
+// [v33] کارت «سررسید پرداخت گذشته» برای دید مالی + کارت هشدار وضعیت بک‌آپ سرور
+async function renderOverduePayCard(actionBox){
+  if(!actionBox) return;
+  if(!(canViewAll() || can('view_financial'))) return;
+  try{
+    const rows=await get('payment_status');
+    const od=(rows||[]).filter(r=>r.overdue && moneyNumber(r.remaining)>0);
+    const sum=od.reduce((s,r)=>s+moneyNumber(r.remaining),0);
+    let div=document.getElementById('bi-overdue-pay-card');
+    if(!div){ div=document.createElement('div'); div.id='bi-overdue-pay-card'; }
+    div.style.cssText='cursor:pointer;background:#3b0a0a;border:1px solid #7f1d1d;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:3px;justify-content:center';
+    div.title='مشاهده پنل پیگیری سررسید در گردش مالی';
+    div.onclick=()=>{ goPage('financial'); const p=document.getElementById('paystatus-panel'); if(p && p.style.display!=='block' && typeof togglePaymentStatusPanel==='function') togglePaymentStatusPanel(); if(p) setTimeout(()=>p.scrollIntoView({behavior:'smooth',block:'start'}),250); };
+    div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:#fca5a5;font-weight:750">💸 سررسید پرداخت گذشته</span><b style="font-size:18px;color:#ef4444">${nf(od.length)}</b></div>`+
+      (sum>0?`<div style="font-size:10.5px;color:#fdba74;font-weight:700">مانده سررسیدگذشته: ${nf(sum)} ریال</div>`:'<div style="font-size:10.5px;color:#64748b">موردی نیست ✅</div>');
+    if(!div.parentNode) actionBox.appendChild(div);
+  }catch(e){ /* کارت اختیاری است — داشبورد نباید بشکند */ }
+  if(CU && (CU.role==='admin' || can('manage_backup'))) renderBackupStatusCard(actionBox);
+}
+async function renderBackupStatusCard(actionBox){
+  try{
+    const r=await get('backups');
+    if(!r||r.ok===false)return;
+    const last=r.last;
+    const days=(last&&last.created_at)?Math.floor((Date.now()-new Date(last.created_at).getTime())/86400000):999;
+    const okk=days<=1;
+    let div=document.getElementById('bi-backup-status-card');
+    if(!div){ div=document.createElement('div'); div.id='bi-backup-status-card'; }
+    div.style.cssText=`cursor:pointer;background:${okk?'#052e16':'#431407'};border:1px solid ${okk?'#166534':'#7c2d12'};border-radius:12px;padding:12px;display:flex;justify-content:space-between;align-items:center`;
+    div.title='صفحه پشتیبان و بازیابی';
+    div.onclick=()=>goPage('backup-restore');
+    const lbl=(days===999)?'بدون بک‌آپ سرور!':(days===0?'بک‌آپ امروز ✓':(days===1?'بک‌آپ دیروز':nf(days)+' روز بدون بک‌آپ'));
+    div.innerHTML=`<span style="font-size:12px;color:${okk?'#86efac':'#fdba74'};font-weight:750">🛟 ${okk?'وضعیت پشتیبان':'هشدار پشتیبان'}</span><b style="font-size:12.5px;color:${okk?'#4ade80':'#fb923c'}">${lbl}</b>`;
+    if(!div.parentNode) actionBox.appendChild(div);
+  }catch(e){}
+}
 function renderDash(s){
   window._dashSanitized = true;
   if(typeof D !== 'undefined' && D.purchases){
@@ -9205,6 +9398,7 @@ function renderDash(s){
       {label:'تأمین‌شده منتظر ارسال',cnt:pendingShipRows.length,color:'#a855f7',page:'shippings'}
     ];
     actionBox.innerHTML=actionCards.map(a=>`<div onclick="goPage('${a.page}')" style="cursor:pointer;background:#1f2937;border:1px solid #374151;border-radius:12px;padding:12px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:#cbd5e1;font-weight:750">${a.label}</span><b style="font-size:18px;color:${a.color}">${nf(a.cnt)}</b></div>`).join('');
+    renderOverduePayCard(actionBox); // [v33] کارت‌های مالی: سررسید پرداخت گذشته + هشدار وضعیت بک‌آپ سرور
   }
 
   // ۳. قیف گلوگاه‌ها
@@ -9399,6 +9593,18 @@ function renderManagerSummary(){
       return `<tr><td>${p.holder||'—'} <span style="color:var(--muted);font-size:10px">(ش${p.number})</span></td><td>${p.expert||'—'}</td><td>${nf(p.ceiling)}</td><td>${nf(sum)}</td><td style="color:${rem<0?'#dc2626':'#16a34a'};font-weight:700">${nf(rem)}</td></tr>`;
     }).join(''):'<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:10px">صورت تنخواهی ثبت نشده</td></tr>';
   }
+}
+// [v37] مبنای سال مالی خرید: اول تاریخ فاکتور، بعد تاریخ قدیمی، آخر تاریخ ثبت —
+// تا خریدهایی که فاکتورشان هنوز نیامده از گزارش سال مالی گم نشوند.
+function purchaseFYDate(p){
+  const d=String((p&&(p.inv_date||p.date))||'').trim();
+  if(d)return d;
+  const iso=String((p&&p.created_at)||'');
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if(!m)return '';
+  const gy=+m[1],gm=+m[2],gd=+m[3];
+  const jy=(gm>3||(gm===3&&gd>=21))?gy-621:gy-622;
+  return String(jy)+'/';
 }
 function yearMatches(dateStr){
   if(!FYEAR) return true;
@@ -9748,7 +9954,7 @@ function genReportRows(){
     const nfAll=buildNonFulfillmentRows({respectYear:false,respectAccess:true});
     const rows=experts.map(name=>{
       let reqs=D.requests.filter(r=>personMatch(r.expert, name));if(FYEAR)reqs=reqs.filter(r=>reqYearMatches(r));
-      let purs=D.purchases.filter(p=>personMatch(p.expert, name));if(FYEAR)purs=purs.filter(p=>yearMatches(p.inv_date||p.date));
+      let purs=D.purchases.filter(p=>personMatch(p.expert, name));if(FYEAR)purs=purs.filter(p=>yearMatches(purchaseFYDate(p)));
       const nf2=nfAll.filter(r=>personMatch(r.expert, name) && (!FYEAR||nfRowYearMatches(r))).length;
       const total=uniqueDashboardPurchaseRows(flattenPurchaseRows().filter(r=>personMatch(r.expert, name)&&(!FYEAR||rowYearMatches(r)))).reduce((s,r)=>s+purchaseRowAmount(r),0);
       return [name,reqs.length,reqs.filter(r=>r.status==='باز').length,reqs.filter(r=>r.status==='بسته').length,purs.length,nf2,nf(Math.round(total))];
@@ -10625,16 +10831,62 @@ function toggleInquiriesBox(){
   else { b.style.display='none'; if(a)a.textContent='▼'; }
 }
 function liSearch(input,rid,field){
-  const val=input.value;
+  const val=(input.value||'').trim();
   const codeList=document.getElementById(`ac-${rid}-code`);
   const nameList=document.getElementById(`ac-${rid}-name`);
   const target=field==='code'?codeList:nameList;
   if(!val){target.classList.remove('open');return;}
-  let res=field==='code'?D.items.filter(i=>(i.code||'').includes(val)).slice(0,8):D.items.filter(i=>(i.name||'').includes(val)).slice(0,8);
+  // [v27] امتیازدهی به نتایج: تطابق دقیق اول، بعد شروع‌شونده، بعد شامل؛ اعداد فارسی هم پشتیبانی می‌شود
+  const q=faToEn(faNorm(val));
+  const score=(txt)=>{
+    const t=faToEn(faNorm(txt||''));
+    if(!t) return 9;
+    if(t===q) return 0;
+    if(t.startsWith(q)) return 1;
+    if(t.includes(q)) return 2;
+    return 9;
+  };
+  let res=D.items
+    .map(it=>({it, s:score(field==='code'?it.code:it.name)}))
+    .filter(x=>x.s<9)
+    .sort((a,b)=> a.s-b.s || (field==='code' ? String(a.it.code||'').length-String(b.it.code||'').length : String(a.it.name||'').length-String(b.it.name||'').length))
+    .slice(0,8)
+    .map(x=>x.it);
   if(!res.length){target.classList.remove('open');return;}
   target.innerHTML=res.map(i=>`<div class="aci" onclick="liSelectAC('${rid}','${esc(i.code)}','${esc(i.name)}','${esc(i.unit||'')}')">${i.name}<div class="aci-code">${i.code||''} ${i.unit?'| '+i.unit:''}</div></div>`).join('');
   target.classList.add('open');
+  aclOpenFixed(input,target);
 }
+// [v27] لیست پیشنهاد کالا به‌صورت شناور (fixed) نمایش داده می‌شود تا قاب ظرف‌های اسکرول‌دار/overflow آن را نبُرد
+function aclOpenFixed(input,list){ list._anchorInput=input; aclRepositionFixed(list); }
+function aclRepositionFixed(list){
+  const input=list._anchorInput;
+  if(!input || !input.isConnected){ list.classList.remove('open'); return; }
+  const r=input.getBoundingClientRect();
+  if(r.width===0 && r.height===0){ list.classList.remove('open'); return; }
+  const gap=3, maxH=240;
+  list.style.position='fixed';
+  list.style.left='auto';
+  let rightOff=Math.max(8, window.innerWidth-r.right);
+  let w=Math.max(r.width, Math.min(380, window.innerWidth-16));
+  w=Math.min(w, r.right-8); // از لبه چپ بیرون نزند
+  list.style.width=w+'px';
+  list.style.right=rightOff+'px';
+  const below=window.innerHeight-r.bottom-gap-8;
+  const above=r.top-gap-8;
+  if(below<Math.min(maxH,140) && above>below){
+    list.style.top='auto';
+    list.style.bottom=(window.innerHeight-r.top+gap)+'px';
+    list.style.maxHeight=Math.max(80,Math.min(maxH,above))+'px';
+  } else {
+    list.style.bottom='auto';
+    list.style.top=(r.bottom+gap)+'px';
+    list.style.maxHeight=Math.max(80,Math.min(maxH,below))+'px';
+  }
+}
+// با اسکرول/تغییر اندازه صفحه، لیست‌های شناور باز دوباره تراز شوند
+window.addEventListener('scroll',()=>{document.querySelectorAll('.acl.open').forEach(l=>{ if(l._anchorInput) aclRepositionFixed(l); });},true);
+window.addEventListener('resize',()=>{document.querySelectorAll('.acl.open').forEach(l=>{ if(l._anchorInput) aclRepositionFixed(l); });});
 function liSelectAC(rid,code,name,unit){
   const row=document.querySelector(`.litem-row[data-rid="${rid}"]`);
   row.querySelector('.li-code').value=code;
@@ -10928,7 +11180,7 @@ function buildPurchaseBody(){
     if(iaEl){iaEl.value=nf(grandTotal);iaEl.dataset.auto='1';}
   }
   return {
-    req_number:rn, inv_date:v('p-id'), delivery_date:v('p-dd'), expert:ex||CU.name, _actor:CU.name,
+    req_number:rn, inv_date:_pFormInvDate, delivery_date:v('p-dd'), expert:ex||CU.name, _actor:CU.name,
     supplier:resolveSupplierName(canonicalSupplierName(v('p-sp'))), pf_date:v('p-pd'),
     has_vat:hasVat, vat_rate:vatRate, vat:vatAmount, discount:disc,
     invoice_amount:invoiceAmount,
@@ -10981,6 +11233,9 @@ async function savePurchase(){
   }
   const body=buildPurchaseBody();
   if(!body){setPurchaseFormStatus(PURCHASE_FORM_STATE.ERROR,'اطلاعات فرم ناقص است');return;}
+  // [v145] تایپ نام تأمین‌کنندهٔ ناشناس فقط با مجوز ساخت (مدیر) — جلوگیری از تایپو/تکراری
+  { const badSup=guardNewSupplierNames([body.supplier].concat((body.line_items||[]).map(li=>li&&li.supplier)));
+    if(badSup){ const _m='تأمین‌کننده «'+badSup+'» در فهرست نیست؛ ساخت نام جدید فقط با مدیر است. لطفاً ابتدا از مدیر بخواهید آن را اضافه کند.'; setPurchaseFormStatus(PURCHASE_FORM_STATE.ERROR,_m); toast(_m,'err'); return; } }
   
   // ردیابی و ثبت خودکار فرم‌های عدم تحقق ابطال‌شده
   try {
@@ -11195,7 +11450,7 @@ async function flushPendingPurchaseQueue(){
 }
 
 function clearPF(){
-  editPID=null;purchasePayments=[];
+  editPID=null;purchasePayments=[];_pFormInvDate='';
   editGroupReq=null;editGroupIds=[];editGroupDeleteIds=[];
   purchaseFormDirty=false;purchaseFormStatus=PURCHASE_FORM_STATE.IDLE;purchaseLastError='';
   setPurchaseFormStatus(PURCHASE_FORM_STATE.IDLE);
@@ -11912,7 +12167,7 @@ function editPurchaseGroup(reqNo){
   sv('p-sp',firstSup==='—'?'':firstSup);try{onMainSupplierChange();}catch(e){}
   const rnField=document.getElementById('p-rn');
   if(rnField){rnField.value=reqStr;rnField.disabled=false;rnField.placeholder='شماره درخواست';}
-  sv('p-id',firstP.inv_date||accessToJalali(firstP.date)||rows[0].inv_date||'');
+  _pFormInvDate=firstP.inv_date||rows[0].inv_date||'';
   sv('p-dd',accessToJalali(firstP.delivery_date)||rows[0].delivery_date||'');
   sv('p-pd',firstP.pf_date||'');
   document.getElementById('p-hasvat').checked=!!firstP.has_vat;toggleVat();
@@ -12719,7 +12974,7 @@ function editP(id){
   if(!p){toast('خرید یافت نشد — صفحه را رفرش کنید (Ctrl+F5)','err');return;}
   if(!canEditPurchaseRecord(p)){toast('شما مجوز ویرایش این خرید را ندارید.','err');return;}
   const hasPricePending=(p.line_items||[]).some(li=>li.price_pending);
-  editPID=Number(p.id);purchasePayments=(p.payments?[...p.payments]:[]);goPage('purchase-new');
+  editPID=Number(p.id);purchasePayments=(p.payments?[...p.payments]:[]);_pFormInvDate=p.inv_date||'';goPage('purchase-new');
   const banner=document.getElementById('p-amend-banner');banner.style.display='none';banner.dataset.parent='';
   const closedBanner=document.getElementById('p-closed-warning');
   if(closedBanner){
@@ -13079,13 +13334,14 @@ async function persistSupplierName(name, options){
   return true;
 }
 async function addSup(){
-  if(!isManager() && !can('create_supplier') && !can('manage_lists') && !can('create_purchase')){toast('دسترسی ندارید','err');return;}
+  if(!can('create_supplier')){toast('ساخت نام تأمین‌کنندهٔ جدید فقط با مدیر است؛ لطفاً درخواست بدهید','err');return;}
   const ok=await persistSupplierName(v('new-sup'),{silent:false});
   if(ok)sv('new-sup','');
 }
 async function addCurrentPurchaseSupplier(){
   const s=v('p-sp').trim();
   if(!s){toast('ابتدا نام تامین‌کننده را وارد کنید','err');return;}
+  if(!can('create_supplier') && !supplierNameKnown(s)){toast('ساخت نام تأمین‌کنندهٔ جدید فقط با مدیر است','err');return;}
   await persistSupplierName(s,{silent:false});
   fillSupplierSelect();
 }
@@ -13569,12 +13825,13 @@ function openSaleModal(sale){
   sv('sl-customer',sale?sale.customer:'');
   sv('sl-method',sale?sale.payment_method:'');
   document.getElementById('sl-finstatus').value=sale?sale.financial_status||'':'';
-  // پر کردن لیست تامین‌کنندگان برای تهاتر
-  const supList=document.getElementById('sl-sup-list');
-  if(supList)supList.innerHTML=(D.suppliers||[]).map(s=>`<option value="${esc(s)}">`).join('');
-  const offsetSel=document.getElementById('sl-offset');
-  offsetSel.innerHTML='<option value="">— بدون تهاتر (نقدی) —</option>'+(D.suppliers||[]).map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
-  offsetSel.value=sale?sale.offset_supplier||'':'';
+  // [v31] لیست تامین‌کنندگان در زمان جستجو از D.suppliers پر می‌شود (supACSearch)
+  const offInp=document.getElementById('sl-offset');
+  if(offInp.closest('.acw'))offInp.closest('.acw').querySelector('.acl').classList.remove('open');
+  const custInp=document.getElementById('sl-customer');
+  if(custInp&&custInp.closest('.acw'))custInp.closest('.acw').querySelector('.acl').classList.remove('open');
+  offInp.value=sale?sale.offset_supplier||'':'';
+  updateOffsetHint();
   // ردیف‌های کالا
   document.getElementById('sl-items-tb').innerHTML='';
   (sale?sale.line_items||[]:[]).forEach(it=>addSaleRow(it));
@@ -13587,7 +13844,7 @@ function addSaleRow(item){
   const tb=document.getElementById('sl-items-tb');
   const tr=document.createElement('tr');
   tr.innerHTML=`<td><input type="text" class="sl-iname" value="${item?esc(item.item_name||''):''}" placeholder="شرح کالا" autocomplete="off"></td>
-    <td><input type="text" class="sl-icode" value="${item?esc(item.item_code||''):''}" style="width:80px" autocomplete="off"></td>
+    <td><div class="acw"><input type="text" class="sl-icode" value="${item?esc(item.item_code||''):''}" style="width:80px" autocomplete="off" oninput="saleCodeSearch(this)" placeholder="کد"><div class="acl"></div></div></td>
     <td><input type="number" class="sl-iqty" value="${item?esc(item.qty||''):''}" placeholder="0" style="width:70px" min="0" oninput="updateSaleTotal()"></td>
     <td><input type="text" class="sl-iunit" value="${item?esc(item.unit||''):''}" placeholder="عدد" style="width:55px" autocomplete="off"></td>
     <td><input type="number" class="sl-iprice" value="${item?esc(item.unit_price||''):''}" placeholder="0" style="width:110px" min="0" oninput="updateSaleTotal()"></td>
@@ -13595,6 +13852,104 @@ function addSaleRow(item){
     <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove();updateSaleTotal()">✕</button></td>`;
   tb.appendChild(tr);
   updateSaleTotal();
+}
+// [v30] جستجوی کد کالا در ردیف فروش — انتخاب از لیست، شرح و واحد را خودکار پر می‌کند.
+// تطابق دقیق تک‌نسخه‌ای بدون باز شدن لیست مستقیم پر می‌کند (تعداد/فی دست‌نخورده می‌ماند).
+function saleCodeSearch(input){
+  const tr=input.closest('tr');
+  const list=tr.querySelector('.acl');
+  const val=(input.value||'').trim();
+  if(!val){ list.classList.remove('open'); return; }
+  const q=faToEn(faNorm(val));
+  const exact=(D.items||[]).filter(i=>faToEn(faNorm(i.code||''))===q);
+  if(exact.length===1){
+    const nm=tr.querySelector('.sl-iname'), un=tr.querySelector('.sl-iunit');
+    if(nm && !nm.value.trim()) nm.value=exact[0].name||'';
+    if(un && !un.value.trim()) un.value=exact[0].unit||'';
+    list.classList.remove('open');
+    return;
+  }
+  const score=(c)=>{const t=faToEn(faNorm(c||''));if(!t)return 9;if(t===q)return 0;if(t.startsWith(q))return 1;if(t.includes(q))return 2;return 9;};
+  const res=(D.items||[]).map(it=>({it,s:score(it.code)})).filter(x=>x.s<9)
+    .sort((a,b)=>a.s-b.s || String(a.it.code||'').length-String(b.it.code||'').length)
+    .slice(0,8).map(x=>x.it);
+  if(!res.length){list.classList.remove('open');return;}
+  list._res=res; list._row=tr;
+  list.innerHTML=res.map((i,k)=>`<div class="aci" data-k="${k}" onclick="saleSelectAC(this)">${esc(i.name||'—')}<div class="aci-code">${esc(i.code||'')} ${i.unit?'| '+esc(i.unit):''}</div></div>`).join('');
+  list.classList.add('open');
+  aclOpenFixed(input,list);
+}
+function saleSelectAC(el){
+  const list=el.closest('.acl'); const tr=list&&list._row; const i=list&&list._res&&list._res[Number(el.dataset.k)];
+  if(!tr||!i)return;
+  tr.querySelector('.sl-icode').value=i.code||'';
+  tr.querySelector('.sl-iname').value=i.name||'';
+  tr.querySelector('.sl-iunit').value=i.unit||'';
+  list.classList.remove('open');
+}
+// [v31] جستجوی هوشمند نام (کادرهای «مشتری» و «تهاتر با تامین‌کننده»)
+// کلمه‌به‌کلمه کار می‌کند؛ ترتیب کلمات مهم نیست و کلمات رایجی مثل «شرکت» در تایپ کاربر نادیده گرفته می‌شوند.
+const _supStopWords={'شرکت':1,'کارخانه':1,'کارگاه':1,'موسسه':1,'مؤسسه':1,'فروشگاه':1};
+function supACSearch(input, srcArr){
+  const wrap=input.closest('.acw'); if(!wrap)return;
+  const list=wrap.querySelector('.acl');
+  const val=(input.value||'').trim();
+  if(!val){ list.classList.remove('open'); updateOffsetHint(); return; }
+  const q=faToEn(faNorm(val));
+  const toks=q.split(' ').filter(t=>t && !_supStopWords[t]);
+  const sups=srcArr?srcArr.slice():[...(D.suppliers||[])];
+  const scored=[];
+  for(const s of sups){
+    if(!s)continue;
+    const n=faToEn(faNorm(String(s)));
+    let sc=9, hit=0;
+    if(n===q){ sc=0; hit=toks.length||1; }
+    else if(n.includes(q)){ sc=1; hit=toks.length||1; }
+    else if(toks.length && toks.every(t=>n.includes(t))){ sc=2; hit=toks.length; }
+    else { hit=toks.filter(t=>n.includes(t)).length; if(hit>0)sc=3; }
+    if(sc<9)scored.push({s:String(s),sc:sc,hit:hit});
+  }
+  scored.sort((a,b)=>a.sc-b.sc || b.hit-a.hit || a.s.length-b.s.length || a.s.localeCompare(b.s,'fa'));
+  const res=scored.slice(0,10).map(x=>x.s);
+  if(!res.length){ list.classList.remove('open'); updateOffsetHint(); return; }
+  list._res=res; list._input=input;
+  list.innerHTML=res.map((s,k)=>`<div class="aci" data-k="${k}" onclick="supACSelect(this)">${esc(s)}</div>`).join('');
+  list.classList.add('open');
+  aclOpenFixed(input,list);
+  updateOffsetHint();
+}
+function supACSelect(el){
+  const list=el.closest('.acl'); const input=list&&list._input;
+  const item=list&&list._res&&list._res[Number(el.dataset.k)];
+  if(!input||item===undefined)return;
+  input.value=String(item||'');
+  list.classList.remove('open');
+  updateOffsetHint();
+}
+// [v32] جستجو در همه نام‌های شناخته‌شده (برای ثبت واریز: خریدها/قراردادها هم منبع هستند)
+function supACSearchKnown(input){
+  const src=(typeof allKnownSupplierSet==='function')?[...allKnownSupplierSet()]:(D.suppliers||[]);
+  supACSearch(input, src.map(String).sort((a,b)=>a.localeCompare(b,'fa')));
+}
+// [v30] پیشنهاد تهاتر: اگر «مشتری» با یک تامین‌کننده هم‌نام بود، با یک کلیک قابل انتخاب است
+function updateOffsetHint(){
+  const hint=document.getElementById('sl-offset-hint'); if(!hint)return;
+  const cust=canonicalSupplierName(v('sl-customer'));
+  const cur=canonicalSupplierName(v('sl-offset'));
+  const match=cust && cust!=='—' && (D.suppliers||[]).find(s=>canonicalSupplierName(s)===cust);
+  if(match && cur!==cust && match!=='—'){
+    hint.style.display='block';
+    hint.innerHTML=`<div style="display:flex;align-items:center;gap:6px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:5px 9px;font-size:11.5px;color:#1D4ED8">
+      <span style="flex:1">💡 این مشتری تامین‌کننده هم هست؛ مبلغ فروش از بدهی «${esc(match)}» کم شود؟</span>
+      <button type="button" class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:11px" onclick="acceptOffsetHint(this.getAttribute('data-s'))" data-s="${esc(match)}">تهاتر شود</button>
+      <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="document.getElementById('sl-offset-hint').style.display='none'">✕</button></div>`;
+  } else hint.style.display='none';
+}
+function acceptOffsetHint(name){
+  if(!name)return;
+  sv('sl-offset',name);
+  document.getElementById('sl-offset-hint').style.display='none';
+  toast('تهاتر با «'+name+'» انتخاب شد ✓','ok');
 }
 
 function updateSaleTotal(){
@@ -14880,24 +15235,66 @@ function setFinPage(page){
   _finPage=Math.max(1, parseInt(page)||1);
   renderFin();
 }
+// [v32] کلید یکتای تامین‌کننده برای مقایسه — نام‌های معادل مثل «مهندسی برازش صنعت» و «برازش صنعت» یکی حساب می‌شوند
+function canonSupKey(x){ return canonicalSupplierName(resolveSupplierName(x||'')); }
+// [v38/finance_view_all] سرور برای دارندهٔ مجوز «مشاهده مالی همه تأمین‌کننده‌ها»
+// یک کپی کاملِ مجموعه‌های مالی در D._finscope می‌فرستد؛ صفحه/جزئیات مالی از آن
+// می‌خوانند تا همهٔ تأمین‌کننده‌ها دیده شوند، درحالی‌که بقیهٔ صفحه‌ها با همان
+// دادهٔ محدودِ خود کاربر کار می‌کنند. (برای بقیهٔ کاربران undefined برمی‌گردد و
+// رفتار قبلی دست‌نخورده می‌ماند.)
+function finScopeColl(n){ const F=(typeof D!=='undefined')&&D&&D._finscope; return F ? (F[n]||[]) : undefined; }
+function finItemsToggle(el){
+  // [v35] باز/بسته کردن فهرست کامل اقلام چندقلمی در پنل جزئیات
+  const f=el.nextElementSibling;
+  if(!f||!f.classList.contains('fin-it-full'))return;
+  const open=f.style.display==='none';
+  if(open){el.dataset.label=el.textContent;f.style.display='block';el.textContent='بستن فهرست ▴';}
+  else{f.style.display='none';el.textContent=el.dataset.label||el.textContent;}
+}
 function showSupDetail(supName){
   // محاسبه تازه از صفر (بدون انباشت) برای رفع باگ جمع‌شدن نادرست
-  const canonSup=canonicalSupplierName(supName);
-  const purs=D.purchases.filter(p=>canonicalSupplierName(p.supplier)===canonSup && (!FYEAR||yearMatches(p.inv_date||p.date)));
+  const canonSup=canonSupKey(supName);
+  // [v39] خریدهایی که فقط برخی ردیف‌هایشان از این تأمین‌کننده است هم دیده شوند
+  const allPurs=(finScopeColl('purchases')||D.purchases)
+    .filter(p=>!FYEAR||yearMatches(purchaseFYDate(p)));
+  const purs=allPurs.filter(p=>{
+    if(canonSupKey(p.supplier)===canonSup) return true;
+    return Object.keys(purchaseAmountBySupplier(p)).some(s=>canonSupKey(s)===canonSup);
+  });
   document.getElementById('sup-detail-title').textContent='جزئیات تامین‌کننده: '+supName;
   let sumInv=0,sumPaid=0;
-  
+
   // لود ردیف‌های خریدهای درخواستی
   const purRows = purs.map(p=>{
-    const inv=purchaseAmountOf(p), paid=pettyPaidForReq(p.req_number);
+    // [v39] سهم همین تأمین‌کننده از این خرید (نه کل مبلغ سربرگ)
+    const bySup=purchaseAmountBySupplier(p);
+    const _sk=Object.keys(bySup).find(s=>canonSupKey(s)===canonSup);
+    const pFull=purchaseAmountOf(p);
+    const inv=_sk?bySup[_sk]:pFull;
+    const _paidAll=pettyPaidForReq(p.req_number, finScopeColl('petty_cash'));
+    const paid=(_paidAll>0 && pFull>0) ? Math.round(_paidAll*inv/pFull) : 0;
     sumInv+=inv;sumPaid+=paid;
-    const items=(p.line_items||[]).map(l=>l.item_name).join('، ')||p.item_name||'—';
+    // [v35] اقلام چندقلمی: فقط قلم اول + نشان «+N قلم دیگر» (کلیک = نمایش کامل فهرست)
+    const _allLi=(p.line_items&&p.line_items.length)?p.line_items:[{item_name:p.item_name,supplier:p.supplier}];
+    const _ownLi=_allLi.filter(li=>canonSupKey(li.supplier||p.supplier)===canonSup);
+    const itemNames=((_ownLi.length?_ownLi:_allLi)).map(l=>l.item_name).filter(Boolean);
+    let itemsCell;
+    if(itemNames.length>1){
+      itemsCell='<span class="fin-it-first">'+esc(itemNames[0])+'</span> '
+        +'<span class="fin-it-more" onclick="finItemsToggle(this)">+'+nf(itemNames.length-1)+' قلم دیگر ▾</span>'
+        +'<div class="fin-it-full" style="display:none">'+esc(itemNames.join(' ؛ '))+'</div>';
+    }else{
+      itemsCell=esc(itemNames[0]||p.item_name||'—');
+    }
+    // [v35] منشأ ردیف‌های بدون شماره دقیق باشد (ورود اکسل یا ثبت دستی)
+    const reqCell = p.req_number ? esc(p.req_number)
+      : '<span class="fin-noreq-badge">بدون شماره'+(p.imported?' — ورود اکسل':'')+'</span>';
     const remain=inv-paid;
-    return `<tr><td>${p.req_number||'—'}</td><td>${items}</td><td>${p.inv_date||'—'}</td><td>${nf(inv)}</td><td>${nf(paid)}</td><td style="color:${remain>0?'#dc2626':'#16a34a'}">${nf(remain)}</td></tr>`;
+    return `<tr><td>${reqCell}</td><td class="fin-it-cell">${itemsCell}</td><td>${p.inv_date||'—'}</td><td>${nf(inv)}</td><td>${nf(paid)}</td><td style="color:${remain>0?'#dc2626':'#16a34a'}">${nf(remain)}</td></tr>`;
   });
   
   // لود ردیف‌های مربوط به قراردادهای این تامین‌کننده
-  const matchedContracts = (D.contracts||[]).filter(c=>canonicalSupplierName(c.party||c.supplier)===canonSup);
+  const matchedContracts = (finScopeColl('contracts')||D.contracts||[]).filter(c=>canonSupKey(c.party||c.supplier)===canonSup);
   const contractRows = matchedContracts.map(c=>{
     const contractAmt = typeof contractAmountEffective==='function' ? contractAmountEffective(c) : parseFloat(c.amount||0);
     const vatAmt = contractAmt * (c.vat_pct||0) / 100;
@@ -14918,17 +15315,34 @@ function showSupDetail(supName){
 
   document.getElementById('sup-detail-tb').innerHTML=[...purRows, ...contractRows].join('')||'<tr><td colspan="6" style="color:var(--muted)">خریدی ثبت نشده</td></tr>';
   
-  const pays=(D.supplier_payments||[]).filter(pay=>canonicalSupplierName(pay.supplier)===canonSup && (!FYEAR||yearMatches(pay.date)));
-  const pettyPays=pettySupplierPayments().filter(pp=>canonicalSupplierName(pp.supplier)===canonSup && (!FYEAR||yearMatches(pp.date)));
+  // [v32] واریزهای خارج از سال مالی جاری جدا می‌شوند تا به‌جای ناپدید شدن، با هشدار دیده شوند
+  const paysAllForSup=(finScopeColl('supplier_payments')||D.supplier_payments||[]).filter(pay=>canonSupKey(pay.supplier)===canonSup);
+  const pays=paysAllForSup.filter(pay=>(!FYEAR||yearMatches(pay.date)));
+  const paysOutOfYear=paysAllForSup.filter(pay=>(FYEAR&&!yearMatches(pay.date)));
+  const pettyPays=pettySupplierPayments().filter(pp=>canonSupKey(pp.supplier)===canonSup && (!FYEAR||yearMatches(pp.date)));
   let sumSep=0;pays.forEach(p=>sumSep+=moneyNumber(p.amount));
   const payRows=[];
   pays.forEach(pay=>payRows.push(`<tr><td>${pay.date||'—'}</td><td>${nf(pay.amount)}</td><td>${pay.note||'—'}</td><td><button class="btn btn-ghost btn-sm" onclick="delSupPayment(${pay.id},'${esc(supName)}')">🗑</button></td></tr>`));
   pettyPays.forEach(pp=>payRows.push(`<tr><td>${pp.date||'—'}</td><td>${nf(pp.amount)}</td><td>پرداخت از تنخواه ${pp.petty_number} — درخواست ${pp.req_number}</td><td>—</td></tr>`));
   document.getElementById('sup-detail-pay').innerHTML=payRows.length?payRows.join(''):'<tr><td colspan="4" style="color:var(--muted)">پرداختی ثبت نشده</td></tr>';
+  // [v32] هشدار واریزهایی که از محاسبه مانده کنار مانده‌اند (قبلاً بی‌صدا پنهان می‌شدند)
+  const warnBits=[];
+  if(paysOutOfYear.length){
+    const s=paysOutOfYear.reduce((a,p2)=>a+moneyNumber(p2.amount),0);
+    warnBits.push(`${nf(paysOutOfYear.length)} واریز به مبلغ ${nf(s)} ریال مربوط به خارج از سال مالی جاری${FYEAR?' ('+faToEn(FYEAR)+')':''} است و در مانده لحاظ نشده`);
+  }
+  const ob=(typeof openingBalanceOf==='function')?openingBalanceOf(canonSup):null;
+  const paysBeforeOpening=ob?pays.filter(p2=>!dateAfterOpening(p2.date,ob)):[];
+  if(paysBeforeOpening.length){
+    const s=paysBeforeOpening.reduce((a,p2)=>a+moneyNumber(p2.amount),0);
+    warnBits.push(`${nf(paysBeforeOpening.length)} واریز به مبلغ ${nf(s)} ریال قبل یا هم‌زمان با تاریخ مانده افتتاحیه (${faToEn(ob.date||'')}) است و در جدول اصلی لحاظ نمی‌شود`);
+  }
   const net=sumInv-(sumPaid+sumSep);
   const el=document.getElementById('sup-detail-net');
   if(el){
-    el.innerHTML=net>0?`مانده بدهی شرکت: <b style="color:#dc2626">${nf(net)} ریال</b>`:net<0?`مانده طلب شرکت: <b style="color:#16a34a">${nf(-net)} ریال</b>`:'<b>تسویه کامل</b>';
+    const netLine=net>0?`مانده بدهی شرکت: <b style="color:#dc2626">${nf(net)} ریال</b>`:net<0?`مانده طلب شرکت: <b style="color:#16a34a">${nf(-net)} ریال</b>`:'<b>تسویه کامل</b>';
+    const warnHTML=warnBits.length?`<div style="text-align:right;margin-bottom:8px;padding:8px 12px;background:#fffbeb;border:1px solid #fcd9a4;border-radius:8px;font-size:11.5px;color:#92400e;line-height:1.9">⚠️ ${warnBits.join('<br>⚠️ ')}</div>`:'';
+    el.innerHTML=warnHTML+netLine;
   }
   document.getElementById('sup-detail-panel').style.display='block';
 }
@@ -15102,11 +15516,31 @@ async function saveSupplierProfile(){
         rememberSupplierRename(oldCanon, name);
       }
       const ids=supplierProfileIdsByCanonical(oldCanon);
+      // [v146] مسیر درست سرور: suppliers/<id> (نه supplier_profiles که روت نداشت و خطا قورت داده می‌شد).
+      // حالا خطا دیده می‌شود؛ تغییرنام هم سمت سرور واقعاً با انتقال سوابق ذخیره می‌شود.
+      let saveErr=null;
       for(const sid of ids){
-        try{await put('supplier_profiles/'+sid, body);}catch(e){}
+        let res=null;
+        try{ res=await put('suppliers/'+sid, body); }
+        catch(e){
+          saveErr=(e&&e.data&&e.data.error)||(e&&e.message)||'خطا در ذخیره';
+          if(e&&e.data&&e.data.conflict){ saveErr+='\nراهنما: برای یکی‌کردن دو نام از دکمه «🔗 ادغام تأمین‌کنندگان» استفاده کنید.'; }
+          break;
+        }
+        if(res && res.ok===false){ saveErr=res.error||'خطا در ذخیره'; break; }
         const idx=(D.supplier_profiles||[]).findIndex(x=>String(x.id)===String(sid));
-        if(idx!==-1)D.supplier_profiles[idx]={...D.supplier_profiles[idx],...body,id:sid};
+        if(idx!==-1)D.supplier_profiles[idx]={...D.supplier_profiles[idx],...(res&&res.id?res:body),id:sid};
+        // خروج محلی از بلک‌لیست وقتی فعال شد — بلافاصله در فهرست دیده شود
+        if(body.is_active){
+          try{
+            const bl=(_getDeletedSuppliers()||[]).filter(x=>canonicalSupplierName(x)!==name);
+            _cachedDeletedSuppliers=bl;
+            if(D.settings)D.settings.deleted_suppliers=bl;
+            try{localStorage.setItem(DEL_SUP_KEY,JSON.stringify(bl));}catch(e){}
+          }catch(e){}
+        }
       }
+      if(saveErr){ toast(saveErr,'err'); return; }
     } else {
       const created=await post('supplier_profiles', body);
       if(created && created.ok===false){toast(created.error||'خطا در ذخیره','err');return;}
@@ -15136,22 +15570,22 @@ function renderSupplier360Content(supName){
   const box = document.getElementById('s360-body');
   if(!box || !supName) return;
   
-  const canonSup=canonicalSupplierName(supName);
-  const purs = (D.purchases||[]).filter(p=>canonicalSupplierName(p.supplier)===canonSup && (!FYEAR||yearMatches(p.inv_date||p.date)));
+  const canonSup=canonSupKey(supName);
+  const purs = (D.purchases||[]).filter(p=>canonSupKey(p.supplier)===canonSup && (!FYEAR||yearMatches(p.inv_date||p.date)));
   let sumInv=0, sumPaid=0;
   purs.forEach(p => { sumInv += parseFloat(p.invoice_amount||0); sumPaid += parseFloat(p.paid||0); });
-  const invDocs=(D.invoice_docs||[]).filter(inv=>canonicalSupplierName(inv.supplier)===canonSup && (!FYEAR||yearMatches(inv.delivered_date||inv.invoice_date||'')));
+  const invDocs=(D.invoice_docs||[]).filter(inv=>canonSupKey(inv.supplier)===canonSup && (!FYEAR||yearMatches(inv.delivered_date||inv.invoice_date||'')));
   invDocs.forEach(inv=>{ sumInv += invoiceFinalAmount(inv); });
-  const pays = (D.supplier_payments||[]).filter(pay=>canonicalSupplierName(pay.supplier)===canonSup && (!FYEAR||yearMatches(pay.date)));
+  const pays = (D.supplier_payments||[]).filter(pay=>canonSupKey(pay.supplier)===canonSup && (!FYEAR||yearMatches(pay.date)));
   pays.forEach(pay => { sumPaid += moneyNumber(pay.amount); });
-  pettySupplierPayments().filter(pp=>canonicalSupplierName(pp.supplier)===canonSup && (!FYEAR||yearMatches(pp.date))).forEach(pp=>{sumPaid+=moneyNumber(pp.amount);});
+  pettySupplierPayments().filter(pp=>canonSupKey(pp.supplier)===canonSup && (!FYEAR||yearMatches(pp.date))).forEach(pp=>{sumPaid+=moneyNumber(pp.amount);});
   const bal = sumInv - sumPaid;
   let finDir = bal > 0 ? 'شرکت بدهکار است (بدهی جاری)' : (bal < 0 ? 'شرکت طلبکار است (پیش‌پرداخت)' : 'تسویه کامل');
   let finColor = bal > 0 ? '#dc2626' : (bal < 0 ? '#16a34a' : '#64748b');
   
   const today = todayJalali();
   const overdueItems = [];
-  flattenPurchaseRows().filter(r => canonicalSupplierName(r.supplier)===canonSup && (!FYEAR||rowYearMatches(r))).forEach(r => {
+  flattenPurchaseRows().filter(r => canonSupKey(r.supplier)===canonSup && (!FYEAR||rowYearMatches(r))).forEach(r => {
     const totalQ = parseFloat(r.qty)||0, shipQ = parseFloat(r.shipped_qty)||0, nfQ = parseFloat(r.nf_qty)||0;
     const rem = totalQ - shipQ - nfQ;
     if(rem > 0 && r.delivery_date && r.delivery_date < today){
@@ -15229,21 +15663,21 @@ function renderSupplier360Content(supName){
 function printSupplier360(supName){
   if(!supName) return;
   logSecurityEvent('print','suppliers','چاپ داشبورد تامین‌کننده '+supName,supName);
-  const canonSup=canonicalSupplierName(supName);
-  const purs = (D.purchases||[]).filter(p=>canonicalSupplierName(p.supplier)===canonSup && (!FYEAR||yearMatches(p.inv_date||p.date)));
+  const canonSup=canonSupKey(supName);
+  const purs = (D.purchases||[]).filter(p=>canonSupKey(p.supplier)===canonSup && (!FYEAR||yearMatches(p.inv_date||p.date)));
   let sumInv=0, sumPaid=0;
   purs.forEach(p => { sumInv += parseFloat(p.invoice_amount||0); sumPaid += parseFloat(p.paid||0); });
-  const invDocs=(D.invoice_docs||[]).filter(inv=>canonicalSupplierName(inv.supplier)===canonSup && (!FYEAR||yearMatches(inv.delivered_date||inv.invoice_date||'')));
+  const invDocs=(D.invoice_docs||[]).filter(inv=>canonSupKey(inv.supplier)===canonSup && (!FYEAR||yearMatches(inv.delivered_date||inv.invoice_date||'')));
   invDocs.forEach(inv=>{ sumInv += invoiceFinalAmount(inv); });
-  const pays = (D.supplier_payments||[]).filter(pay=>canonicalSupplierName(pay.supplier)===canonSup && (!FYEAR||yearMatches(pay.date)));
+  const pays = (D.supplier_payments||[]).filter(pay=>canonSupKey(pay.supplier)===canonSup && (!FYEAR||yearMatches(pay.date)));
   pays.forEach(pay => { sumPaid += moneyNumber(pay.amount); });
-  pettySupplierPayments().filter(pp=>canonicalSupplierName(pp.supplier)===canonSup && (!FYEAR||yearMatches(pp.date))).forEach(pp=>{sumPaid+=moneyNumber(pp.amount);});
+  pettySupplierPayments().filter(pp=>canonSupKey(pp.supplier)===canonSup && (!FYEAR||yearMatches(pp.date))).forEach(pp=>{sumPaid+=moneyNumber(pp.amount);});
   const bal = sumInv - sumPaid;
   let finDir = bal > 0 ? 'شرکت بدهکار است' : (bal < 0 ? 'شرکت طلبکار است' : 'تسویه کامل');
   
   const today = todayJalali();
   const overdueItems = [];
-  flattenPurchaseRows().filter(r => canonicalSupplierName(r.supplier)===canonSup && (!FYEAR||rowYearMatches(r))).forEach(r => {
+  flattenPurchaseRows().filter(r => canonSupKey(r.supplier)===canonSup && (!FYEAR||rowYearMatches(r))).forEach(r => {
     const totalQ = parseFloat(r.qty)||0, shipQ = parseFloat(r.shipped_qty)||0, nfQ = parseFloat(r.nf_qty)||0;
     const rem = totalQ - shipQ - nfQ;
     if(rem > 0 && r.delivery_date && r.delivery_date < today){
@@ -15307,76 +15741,53 @@ function printSupplier360(supName){
   </body></html>`);
   w.document.close();w.focus();setTimeout(()=>w.print(),350);
 }
+// [v145] آیا نام تأمین‌کننده در فهرست موجود است؟ (فعال یا پنهان — مثل منطق سرور)
+function supplierNameKnown(name){
+  const n=faNorm(name||'');
+  if(!n||n==='—')return true;
+  if((D.suppliers||[]).some(x=>faNorm(x)===n))return true;
+  if((D.supplier_profiles||[]).some(prof=>prof&&faNorm(prof.name)===n))return true;
+  return false;
+}
+// [v145] اگر کاربر مجوز ساخت تأمین‌کننده ندارد و نامی ناشناس باشد، آن نام برمی‌گردد؛ وگرنه null
+function guardNewSupplierNames(names){
+  if(can('create_supplier'))return null;
+  for(const nm of (names||[])){
+    const s=(nm||'').trim();
+    if(!s||s==='—')continue;
+    if(!supplierNameKnown(s))return s;
+  }
+  return null;
+}
+
+// [v145] پنهان‌سازی امن تأمین‌کننده — بدون پاک‌کردن سوابق.
+// منطق قبلی: نام را از همهٔ خریدها/فاکتورها/قراردادها تهی می‌کرد (پاک‌سازی آبشاری)
+// و تاریخچه برای همیشه نابود می‌شد؛ بعد هم کسی نمی‌فهمید شرکت کجا رفت.
+// منطق جدید: هرگز به سوابق دست نمی‌زنیم؛ نام فقط از فهرست‌ها پنهان می‌شود
+// و با تیک «نمایش حذف‌شده‌ها» قابل دیدن و برگشت است. برای نام‌های تکراری: ادغام.
 async function deleteSupplierProfile(id,name){
   if(!requirePerm('delete_supplier','دسترسی حذف/غیرفعال‌سازی تامین‌کننده ندارید'))return;
   const canon=canonicalSupplierName(name);
-  if(!confirm('آیا مطمئن هستید که تامین‌کننده «'+canon+'» به طور کامل و فیزیکی حذف شود؟\nتوجه: این عمل تمامی سوابق این تامین‌کننده در خریدها، فاکتورها و قراردادها را نیز پاک‌سازی خواهد کرد.')) return;
+  if(!confirm('تأمین‌کننده «'+canon+'» پنهان شود؟\n\nاگر این نام تکراری یا غلط است، بهتر است از دکمهٔ «🔗 ادغام تأمین‌کنندگان» استفاده کنید تا سوابقش به نام درست منتقل شود.\nبا پنهان‌سازی هیچ سندی پاک نمی‌شود و نام هر زمان قابل برگشت است.')) return;
   try{
-    // ۱. حذف فیزیکی تمامی پروفایل‌های مرتبط با این نام کانونیکال از سرور (در صورت وجود شناسه واقعی)
-    if(id){
-      const ids=supplierProfileIdsByCanonical(canon);
-      for(const sid of ids){
-        try{ await del('supplier_profiles/'+sid); }catch(e){}
-        D.supplier_profiles=(D.supplier_profiles||[]).filter(x=>String(x.id)!==String(sid));
-      }
+    let res=null;
+    try{ res = await del('suppliers/'+encodeURIComponent(canon)); }
+    catch(e){
+      if(e && e.status===409 && e.data && e.data.needs_force){
+        if(!confirm('این تأمین‌کننده '+e.data.used+' سند متصل دارد (خرید/پرداخت/قرارداد).\nسوابق پاک نمی‌شود؛ نام فقط از فهرست‌ها پنهان می‌شود و با «نمایش حذف‌شده‌ها» قابل برگشت است.\n\nپنهان شود؟')) return;
+        res = await del('suppliers/'+encodeURIComponent(canon)+'?force=1');
+      } else throw e;
     }
-    
-    // ۲. پاک‌سازی آبشاری و تهی‌ساز (Cascade Nullify) نام تامین‌کننده غلط از خریدها، فاکتورها و قراردادها
-    const jobs=[];
-    const pushJob=(promise,label)=>{ if(promise&&promise.catch)jobs.push(promise.catch(e=>console.warn('cascade nullify failed',label,e))); };
-    
-    // خریدها
-    (D.purchases||[]).forEach(p=>{
-      let changed=false;
-      if(canonicalSupplierName(p.supplier)===canon){p.supplier='';changed=true;}
-      (p.line_items||[]).forEach(li=>{ if(canonicalSupplierName(li.supplier)===canon){li.supplier='';changed=true;} });
-      if(changed){
-        pushJob(put('purchases/'+p.id,{...p,supplier:'',_actor:CU&&CU.name}),'purchases/'+p.id);
-      }
-    });
-    
-    // فاکتورها
-    (D.invoice_docs||[]).forEach(inv=>{
-      if(canonicalSupplierName(inv.supplier)===canon){
-        inv.supplier='';
-        if(inv.id) pushJob(put('invoice_docs/'+inv.id,{...inv,supplier:'',_actor:CU&&CU.name}),'invoice_docs/'+inv.id);
-      }
-    });
-    
-    // پرداخت‌ها
-    (D.supplier_payments||[]).forEach(pay=>{
-      if(canonicalSupplierName(pay.supplier)===canon){
-        pay.supplier='';
-        if(pay.id) pushJob(put('supplier_payments/'+pay.id,{...pay,supplier:'',_actor:CU&&CU.name}),'supplier_payments/'+pay.id);
-      }
-    });
-    
-    // قراردادها
-    (D.contracts||[]).forEach(c=>{
-      if(canonicalSupplierName(c.party||c.supplier)===canon){
-        c.party=''; if(c.supplier)c.supplier='';
-        if(c.id) pushJob(put('contracts/'+c.id,{...c,party:'',supplier:'',_actor:CU&&CU.name}),'contracts/'+c.id);
-      }
-    });
-    
-    if(jobs.length) await Promise.all(jobs);
-
-    // ۳. حذف نام تامین‌کننده از کلکسیون فعال تامین‌کنندگان سرور و ریفرش نماها
-    try{ await del('suppliers/'+encodeURIComponent(canon)); }catch(e){}
+    // به‌روزرسانی محلی فهرست‌ها — بدون دست‌کاری سوابق
     D.suppliers=(D.suppliers||[]).filter(x=>canonicalSupplierName(x)!==canon);
-    
-    // افزودن نام تامین‌کننده حذف شده به بلک‌لیست آفلاین کلاینت-سرور برای جلوگیری از بازگشت در لودهای بعدی
-    D.settings=D.settings||{};
-    const updatedBlackList = _dedupe([..._getDeletedSuppliers(), canon]);
-    D.settings.deleted_suppliers = updatedBlackList;
-    _saveDeletedSuppliers(updatedBlackList);
-
+    (D.supplier_profiles||[]).forEach(s=>{ if(s && canonicalSupplierName(s.name)===canon) s.is_active=false; });
     normalizeSupplierCollections();
-    logSecurityEvent('delete','supplier_profiles','حذف فیزیکی و پاک‌سازی آبشاری تامین‌کننده '+canon,id||0);
     renderSupplierProfiles();
     try{ refreshAllViews(lastStats); }catch(e){}
-    toast('تامین‌کننده حذف و سوابق آن پاک‌سازی شد ✓','ok');
-  }catch(e){toast('خطا در حذف و پاک‌سازی','err');}
+    logSecurityEvent('delete','supplier_profiles','پنهان‌سازی تأمین‌کننده '+canon,id||0);
+    const used=(res&&res.used)||0;
+    toast(used?('پنهان شد — '+used+' سندش سالم ماند ✓'):'تأمین‌کننده حذف شد ✓','ok');
+  }catch(e){ toast((e&&e.message)||'خطا در حذف','err'); }
 }
 
 // ===== وضعیت پرداخت (سررسید/تاخیر) =====
@@ -16021,10 +16432,12 @@ function openInq3Modal(inq) {
   const _ap=document.getElementById('inq3-ceo-approve'); if(_ap) _ap.checked = inq ? !!inq.ceo_approve : false;
 
   sv('inq3-tech-dept', inq ? (inq.tech_dept || '') : 'فنی و مهندسی');
-  sv('inq3-tech-desc', inq ? (inq.tech_desc || '') : defaultTechnicalJustificationTemplate());
-  sv('inq3-tech-ex1', inq ? (inq.tech_ex1 || '') : '');
+  // [v29] متن گزارش فنی دیگر با متن آمادهٔ قدیمی (برازش صنعت) پر نمی‌شود — خالی می‌ماند
+  sv('inq3-tech-desc', inq ? (inq.tech_desc || '') : '');
+  // [v29] مهندس زارع پیش‌فرض ردیف اول ممیزان فنی است (قبلاً ردیف دوم بود)
+  sv('inq3-tech-ex1', inq ? (inq.tech_ex1 || '') : 'میثم زارع');
   sv('inq3-tech-role1', inq ? (inq.tech_role1 || '') : '');
-  sv('inq3-tech-ex2', inq ? (inq.tech_ex2 || '') : 'میثم زارع');
+  sv('inq3-tech-ex2', inq ? (inq.tech_ex2 || '') : '');
   sv('inq3-tech-role2', inq ? (inq.tech_role2 || '') : '');
   sv('inq3-tech-ex3', inq ? (inq.tech_ex3 || '') : '');
   sv('inq3-tech-role3', inq ? (inq.tech_role3 || '') : '');
@@ -16068,11 +16481,18 @@ function onInq3ReqChange() {
     if (pr && price && !moneyNumber(pr.value)) pr.value = nf(price);
     if (sel) sel.checked = true;
   };
-  const purs = D.purchases.filter(p => String(p.req_number) === reqNo);
+  // [v29] تطبیق شماره درخواست مقاوم به فاصله/خط‌تیره و اعداد فارسی
+  const _rn = faToEn(reqNo.replace(/[\s\-‌]/g,''));
+  const purs = D.purchases.filter(p => faToEn(String(p.req_number||'').replace(/[\s\-‌]/g,'')) === _rn);
   if (purs.length) {
     const p = purs[0];
-    const names = [...new Set(purs.map(x => x.item_name || '').filter(Boolean))].join('، ');
+    // [v29] شرح محصول از همهٔ اقلام واقعی خریدها (line_items) — نه فقط نام سرستون خرید.
+    // قبلاً یا فقط قلم اول می‌آمد یا (در خریدهای چنداقلامی) کلاً خالی می‌ماند.
+    const itemNames = purs.flatMap(x => ((x.line_items||[]).map(li => li && li.item_name).filter(Boolean)));
+    const headerNames = purs.map(x => x.item_name || '').filter(Boolean);
+    const names = [...new Set(itemNames.length ? itemNames : headerNames)].join('، ');
     if (!v('inq3-prod').trim()) sv('inq3-prod', names || p.item_name || '');
+    // مبلغ: جمع کل خریدهای همان درخواست («مبلغ کل درخواست») روی ردیف اول می‌نشیند
     setRow0(p.supplier || '', purs.reduce((s, x) => s + purchaseAmountOf(x), 0));
   } else {
     const req = D.requests.find(x => String(x.req_number) === reqNo);
@@ -16379,14 +16799,22 @@ async function saveInq3Form() {
     expert: CU.name
   };
   
-  if (editInq3Id) {
-    const idx = D.inquiry_three_page.findIndex(x => x.id === editInq3Id);
-    if (idx !== -1) D.inquiry_three_page[idx] = body;
-  } else {
-    D.inquiry_three_page.push(body);
+  // [v28] ذخیره واقعی روی سرور از مسیر اختصاصی و امن (قبلاً برای کاربران بدون مجوز
+  // manage_lists بی‌سروصدا شکست می‌خورد و رکورد با اولین رفرش ناپدید می‌شد،
+  // در حالی که پیام «ذخیره شد» نمایش داده می‌شد!)
+  let res;
+  try {
+    res = await post('inquiry_three_page', body);
+  } catch(e) {
+    const _m = 'ذخیره استعلام ناموفق بود: ' + ((e && e.data && e.data.error) || (e && e.message) || 'خطای اتصال به سرور');
+    toast(_m, 'err');
+    return;
   }
-  
-  saveAllServerSettings();
+  const rec = (res && res.record) ? res.record : body;
+  D.inquiry_three_page = D.inquiry_three_page || [];
+  const idx = D.inquiry_three_page.findIndex(x => x.id === rec.id);
+  if (idx !== -1) D.inquiry_three_page[idx] = rec; else D.inquiry_three_page.push(rec);
+
   closeModal('m-inquiry');
   renderInq3List();
   toast('صورت استعلام سه برگی معاملات با موفقیت ذخیره شد ✓', 'ok');
@@ -16442,10 +16870,17 @@ function renderInq3List() {
   }).join('') : '<tr><td colspan="8"><div class="empty"><div class="ei">📋</div><p>پرونده استعلام سه برگی ثبت نشده</p></div></td></tr>';
 }
 
-function deleteInq3(id) {
+async function deleteInq3(id) {
   if (!confirm('آیا مطمئن هستید که این پرونده استعلام حذف شود؟')) return;
+  // [v28] حذف واقعی روی سرور (فقط مدیر/admin) — قبلاً فقط محلی حذف می‌شد و
+  // برای کاربران بدون مجوز manage_lists رکورد روی سرور می‌ماند.
+  try {
+    await del('inquiry_three_page/' + id);
+  } catch(e) {
+    toast('حذف ناموفق بود: ' + ((e && e.data && e.data.error) || (e && e.message) || 'خطای اتصال به سرور'), 'err');
+    return;
+  }
   D.inquiry_three_page = (D.inquiry_three_page || []).filter(x => x.id !== id);
-  saveAllServerSettings();
   renderInq3List();
   toast('پرونده با موفقیت حذف شد ✓', 'ok');
 }
@@ -18700,11 +19135,15 @@ function onInvReqToggle(cb){
   updateInvoiceAmountWarning();
 }
 
+// [v37/v150] پرشدن خودکار تاریخ فاکتور خریدها موقع ثبت مدارک، حالا سمت سرور انجام
+// می‌شود (backfill_purchase_inv_dates) تا مستقل از سطح دسترسی دیدن خریدها کار کند.
 async function saveInvoiceDoc(){
   const _de=validateDatesIn('m-invoice'); if(_de){toast(_de,'err');return;}
   const invoice_no=v('inv-no').trim();
   const sup=v('inv-supplier').trim();
   const wNo=v('inv-warehouse').trim();
+  { const badSup=guardNewSupplierNames(sup.split(/[،,]/));
+    if(badSup){ toast('تأمین‌کننده «'+badSup+'» در فهرست نیست؛ ساخت نام جدید فقط با مدیر است.','err'); return; } }
   if(!invoice_no){toast('شماره فاکتور را وارد کنید','err');return;}
   if(!v('inv-date').trim()){toast('تاریخ فاکتور را وارد کنید','err');return;}
   if(!_invEditId && invoice_no && sup){
@@ -18737,19 +19176,24 @@ async function saveInvoiceDoc(){
     delivered_date: stmtNo ? (v('inv-date').trim()||todayJalali()) : '',
     _actor:CU.name};
   try{
+    let _filled=0;
     if(_invEditId){
-      await put('invoice_docs/'+_invEditId,body);
+      const _r=await put('invoice_docs/'+_invEditId,body);
+      _filled=(_r&&_r._autofilled_purchases)||0;
       const inv=D.invoice_docs.find(x=>x.id===_invEditId);if(inv)Object.assign(inv,body);
     } else {
       const inv=await post('invoice_docs',body);
+      _filled=(inv&&inv._autofilled_purchases)||0;
+      if(inv&&inv._autofilled_purchases!==undefined)delete inv._autofilled_purchases;
       D.invoice_docs=D.invoice_docs||[];D.invoice_docs.push(inv);
     }
+    if(_filled){try{await loadAll();}catch(e){}}
     closeModal('m-invoice');
     renderInvoiceDocs();
     if(document.getElementById('m-statement-detail')?.classList.contains('open') && _currentDetailStmtNo){
       openStatementDetailModal(_currentDetailStmtNo);
     }
-    toast('فاکتور ثبت شد ✓','ok');
+    toast('فاکتور ثبت شد ✓'+(_filled?' — تاریخ فاکتور '+nf(_filled)+' خرید هم خودکار ثبت شد':''),'ok');
   }catch(e){toast('خطا در ثبت','err');}
 }
 
@@ -19405,6 +19849,7 @@ const PERM_LABELS={
   ship_consolidate:'مسئول ارسال (مشاهده و تجمیع اقلام همه کارشناسان)',
   register_return:'ثبت مرجوعی',
   register_payment:'ثبت واریز/پرداخت',register_nonfulfill:'ثبت عدم تحقق',
+  finance_view_all:'مشاهده گردش مالی همه تأمین‌کننده‌ها (فقط همین بخش)',
   issue_statement_cover:'صدور صورت‌وضعیت فاکتورها و چاپ روکش تحویل به مالی (فرم FR-PU-12/00)',
   manage_lists:'مدیریت لیست‌ها و تنظیمات پایه',manage_users:'مدیریت کاربران',manage_backup:'بک‌آپ‌گیری',manage_items:'مدیریت کالاها',page_audit_log:'مشاهده رویدادنامه',page_data_health:'مشاهده سلامت داده‌ها',
   view_financial:'مشاهده بخش مالی',view_reports:'مشاهده گزارش‌ها',export_excel:'خروجی اکسل',
@@ -19486,6 +19931,8 @@ const NAV_TREE_GROUPS=[
   {group:'💰 مالی', items:[
     {key:'view_financial', label:'گردش مالی تامین‌کنندگان', subs:[
       {key:'register_payment', label:'ثبت واریز/پرداخت به تامین‌کننده'},
+      // [v151] دیدن مالی همهٔ تأمین‌کننده‌ها، بدون باز شدن خریدهای دیگران در بقیهٔ صفحه‌ها
+      {key:'finance_view_all', label:'👁 مشاهده مالی همه تأمین‌کننده‌ها (فقط همین بخش)'},
     ]},
     {key:'issue_statement_cover', label:'صدور صورت‌وضعیت فاکتورها و چاپ روکش تحویل به مالی (فرم FR-PU-12/00)',
       subs:[
@@ -20679,6 +21126,108 @@ function computeDataHealth(){
   dataHealthAdd(out,'اعلام نیاز','اعلام نیاز بدون شماره',ndNoNumber.length,ndNoNumber,'متوسط');
   return out;
 }
+// ====== [v34] ادغام خودکار تأمین‌کننده‌های هم‌نام (سلامت داده) ======
+let _dhDupGroups = null;
+function dhDupPerm(){ return isManager() || can('manage_suppliers') || can('edit_supplier'); }
+function dhMoney(x){ const n = Number(x)||0; return nf(n); }
+async function dhScanSupplierDups(){
+  if(!dhDupPerm()){ toast('دسترسی ادغام تامین‌کننده ندارید','err'); return; }
+  const body = document.getElementById('dh-dups-body');
+  const applyBtn = document.getElementById('dh-dups-apply');
+  if(applyBtn) applyBtn.style.display='none';
+  body.innerHTML = 'در حال بررسی نام‌ها روی سرور… ⏳';
+  let res = null;
+  try{ res = await get('supplier_dups_preview'); }
+  catch(e){ body.innerHTML = 'خطا در بررسی: '+esc(e.message||'نامشخص'); return; }
+  if(!res || res.ok === false){
+    body.innerHTML = 'خطا: '+esc((res&&res.error)||'پاسخ نامعتبر — احتمالاً سرور قدیمی است؛ فایل‌ها را جایگزین و پنجره سرور را یک بار ببندید و دوباره باز کنید.');
+    return;
+  }
+  _dhDupGroups = res.groups || [];
+  dhRenderSupplierDups(res.group_count);
+}
+function dhRenderSupplierDups(groupCount){
+  const body = document.getElementById('dh-dups-body');
+  const applyBtn = document.getElementById('dh-dups-apply');
+  const groups = _dhDupGroups || [];
+  if(!groups.length){
+    body.innerHTML = '<div style="border:1px solid #86efac;background:#f0fdf4;border-radius:10px;padding:12px 14px;color:#14532d">✅ هیچ نام هم‌خانواده‌ای پیدا نشد؛ فهرست تأمین‌کننده‌ها یکدست است.</div>';
+    if(applyBtn) applyBtn.style.display='none';
+    return;
+  }
+  if(applyBtn) applyBtn.style.display='';
+  let html = '<div style="margin-bottom:10px;color:var(--ink)"><b>'+nf(groups.length)+'</b> گروه هم‌نام پیدا شد. نام اصلی هر گروه را بررسی کنید و تیک گروه‌هایی را که می‌خواهید ادغام شوند بزنید.</div>';
+  groups.forEach(function(g, gi){
+    const conflict = g.flags && g.flags.length;
+    html += '<div style="border:1px solid '+(conflict?'#fca5a5':'var(--border)')+';border-radius:10px;padding:10px 12px;margin-bottom:10px;background:'+(conflict?'#fff7f7':'#fff')+'">'
+      + '<div style="display:flex;gap:8px;align-items:flex-start">'
+      + '<input type="checkbox" class="dh-dup-cb" data-gi="'+gi+'" '+(g.checked?'checked':'')+' style="width:auto;margin-top:4px">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:6px">'
+      + '<b style="color:var(--ink)">انتقال همه به:</b>'
+      + '<select class="dh-dup-target" data-gi="'+gi+'" style="min-width:230px">'
+      + g.variants.map(function(v){ return '<option value="'+esc(v.name)+'"'+(v.name===g.suggested?' selected':'')+'>'+esc(v.name)+'</option>'; }).join('')
+      + '</select>'
+      + (conflict
+          ? '<span style="background:#fee2e2;color:#b91c1c;border-radius:999px;padding:2px 10px;font-size:11px">⚠ '+g.flags.map(esc).join(' · ')+'</span>'
+          : '<span style="background:#dcfce7;color:#166534;border-radius:999px;padding:2px 10px;font-size:11px">بدون تعارض</span>')
+      + '</div>'
+      + '<div class="tw"><table style="width:100%"><thead><tr><th>نام پیداشده</th><th>پروفایل</th><th>خرید</th><th>پرداخت</th><th>سند مالی</th><th>تهاتر فروش</th><th>مانده اول دوره</th></tr></thead><tbody>'
+      + g.variants.map(function(v){
+          const prof = v.active_profile ? '<span style="color:#166534">فعال ✓</span>'
+                     : (v.inactive_profile ? '<span style="color:#b45309">غیرفعال</span>' : '<span style="color:var(--muted)">—</span>');
+          const docs = (v.counts.docs||0) + (v.counts.purchase_items||0) + (v.counts.shipping_items||0);
+          return '<tr><td>'+esc(v.name)+'</td><td>'+prof+'</td><td>'+nf(v.counts.purchases||0)+'</td><td>'+nf(v.counts.supplier_payments||0)+'</td><td>'+nf(docs)+'</td><td>'+nf(v.counts.sales_offset||0)+'</td><td>'+(v.opening!=null?dhMoney(v.opening):'—')+'</td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + '</div></div></div>';
+  });
+  body.innerHTML = html;
+}
+async function dhApplySupplierDups(){
+  if(!dhDupPerm()){ toast('دسترسی ادغام تامین‌کننده ندارید','err'); return; }
+  const groups = _dhDupGroups || [];
+  const cbs = Array.prototype.slice.call(document.querySelectorAll('.dh-dup-cb:checked'));
+  if(!cbs.length){ toast('حداقل یک گروه را انتخاب کنید','err'); return; }
+  const payload = cbs.map(function(cb){
+    const g = groups[+cb.dataset.gi];
+    const sel = document.querySelector('.dh-dup-target[data-gi="'+cb.dataset.gi+'"]');
+    const target = sel ? sel.value : g.suggested;
+    return { target: target, aliases: g.variants.map(function(v){return v.name;}).filter(function(n){return n!==target;}) };
+  });
+  const lines = payload.map(function(p){ return '• '+p.aliases.join('، ')+'   ←   «'+p.target+'»'; }).join('\n');
+  if(!confirm('ادغام '+nf(payload.length)+' گروه انجام می‌شود:\n\n'+lines+'\n\nقبل از شروع، سرور خودکار از دیتابیس پشتیبان می‌گیرد.\nاین تغییر دائمی است و نام‌های اضافی برای همیشه حذف می‌شوند.\nادامه می‌دهید؟')) return;
+  const applyBtn = document.getElementById('dh-dups-apply');
+  if(applyBtn){ applyBtn.disabled = true; }
+  toast('در حال پشتیبان‌گیری و ادغام… لطفاً صبر کنید','ok');
+  let res = null;
+  try{ res = await post('suppliers_normalize_apply', {groups: payload, _actor: CU && CU.name}); }
+  catch(e){ res = null; toast('خطا در ادغام: '+(e.message||'نامشخص'),'err'); }
+  if(applyBtn){ applyBtn.disabled = false; }
+  if(res === null) return;
+  if(!res || res.ok === false){
+    if(res && res.partial){ /* بعضی گروه‌ها انجام شد */ }
+    else { toast('خطا در ادغام: '+((res && res.error)||'پاسخ نامعتبر'),'err'); return; }
+  }
+  let tot = 0, rem = 0;
+  (res.results||[]).forEach(function(r){
+    tot += (r.purchases||0)+(r.purchase_items||0)+(r.shipping_items||0)+(r.supplier_payments||0)+(r.docs||0)+(r.sales_offset||0);
+    rem += (r.suppliers_removed||0);
+  });
+  let msg = 'ادغام انجام شد ✓ '+nf((res.results||[]).length)+' گروه — '+nf(tot)+' رکورد منتقل و '+nf(rem)+' نام اضافی حذف شد.';
+  if(res.backup) msg += '\nپشتیبان خودکار: '+res.backup;
+  if(res.errors && res.errors.length) msg += '\n⚠ '+nf(res.errors.length)+' گروه با خطا مواجه شد: '+res.errors.map(function(x){return x.target;}).join('، ');
+  const body = document.getElementById('dh-dups-body');
+  body.innerHTML = '<div style="border:1px solid #86efac;background:#f0fdf4;border-radius:10px;padding:12px 14px;color:#14532d;white-space:pre-line">'+esc(msg)+'</div>';
+  if(applyBtn) applyBtn.style.display='none';
+  toast('ادغام خودکار انجام شد ✓','ok');
+  try{ await loadAll(); }catch(e){}
+  try{ normalizeSupplierCollections(); }catch(e){}
+  try{ fillSupplierSelect(); }catch(e){}
+  try{ renderSupList(); }catch(e){}
+  try{ refreshAllViews(lastStats); }catch(e){}
+  try{ logSecurityEvent('merge','suppliers','ادغام خودکار هم‌نام‌ها: '+nf((res.results||[]).length)+' گروه',''); }catch(e){}
+}
 function renderDataHealth(){
   if(!requirePerm('page_data_health','دسترسی مشاهده سلامت داده‌ها ندارید'))return;
   const rows=computeDataHealth();
@@ -20838,11 +21387,39 @@ function bindPasswordMeter(inputId, username){
   };
   el.addEventListener('input',upd); upd();
 }
-function openBackupModal(){
+async function openBackupModal(){
   if(CU.role!=='admin' && !can('manage_backup')){toast('فقط مدیر به بک‌آپ دسترسی دارد','err');return;}
   const info=document.getElementById('backup-last-info');
-  if(info)info.textContent='آخرین بک‌آپ: '+(localStorage.getItem('mehr_last_backup')||'—');
+  if(info)info.innerHTML='آخرین بک‌آپ این مرورگر: <span style="font-weight:400">'+(esc(localStorage.getItem('mehr_last_backup')||'—'))+'</span>';
   openModal('m-backup');
+  // [v33] وضعیت واقعی بک‌آپ روی سرور (بک‌آپ خودکار هر چند ساعت + دستی‌ها) با هشدار قدمت
+  const sinfo=document.getElementById('backup-server-info');
+  if(!sinfo)return;
+  sinfo.innerHTML='<span style="font-size:11.5px;color:var(--muted)">در حال خواندن وضعیت بک‌آپ سرور...</span>';
+  try{
+    const r=await get('backups');
+    if(r && r.ok!==false){
+      const last=r.last;
+      if(last && last.created_at){
+        const days=Math.floor((Date.now()-new Date(last.created_at).getTime())/86400000);
+        const when=new Date(last.created_at);
+        const faDate=when.toLocaleDateString('fa-IR')+' '+when.toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'});
+        const okk=days<=1, warn=days>1&&days<=3;
+        const col=okk?'#166534':(warn?'#92400e':'#b91c1c');
+        const bg=okk?'#f0fdf4':(warn?'#fffbeb':'#fef2f2');
+        const bd=okk?'#bbf7d0':(warn?'#fcd9a4':'#fecaca');
+        const lbl=days===0?'امروز ✓':(days===1?'دیروز ✓':nf(days)+' روز پیش');
+        sinfo.innerHTML=`<div style="display:flex;align-items:center;gap:8px;background:${bg};border:1px solid ${bd};border-radius:8px;padding:8px 10px">
+          <span style="flex:1;font-size:12px;color:#334155">🛟 آخرین بک‌آپ <b>روی سرور</b>: ${faDate}</span>
+          <span style="font-size:11px;font-weight:800;color:${col}">${okk?'':'⚠ '}${lbl}</span></div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:4px">${nf((r.rows||[]).length)} نسخه روی سرور — بک‌آپ خودکار سرور هر ${nf(r.every_hours||6)} ساعت</div>`;
+      } else {
+        sinfo.innerHTML='<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;font-size:12px;color:#b91c1c;font-weight:700">⚠ هیچ بک‌آپی روی سرور موجود نیست — حتماً همین حالا بک‌آپ بگیرید!</div>';
+      }
+    } else {
+      sinfo.innerHTML='<div style="font-size:11.5px;color:#b91c1c">خواندن وضعیت بک‌آپ سرور ممکن نشد: '+esc((r&&r.error)||'نامشخص')+'</div>';
+    }
+  }catch(e){ sinfo.innerHTML='<div style="font-size:11.5px;color:#b91c1c">خواندن وضعیت بک‌آپ سرور ممکن نشد.</div>'; }
 }
 async function doBackupDownload(){
   if(CU.role!=='admin' && !can('manage_backup')){toast('دسترسی ندارید','err');return;}
@@ -21101,16 +21678,13 @@ function openModal(id){
   if(id==='m-retreason')renderRetReasonList();
   if(id==='m-ctype')renderContractTypeList();
   if(id==='m-pay'){
-    const dl=document.getElementById('pay-sp-list');
-    const sups=[...allKnownSupplierSet()].sort((a,b)=>a.localeCompare(b,'fa'));
-    if(dl)dl.innerHTML=sups.map(s=>`<option value="${esc(s)}">`).join('');
     sv('pay-sp','');sv('pay-amt','');sv('pay-dt',todayJalali());sv('pay-nt','');
   }
   document.getElementById(id).classList.add('open');
 }
 async function saveSupPayment(){
   if(!requirePerm('register_payment','اجازه ثبت واریز/پرداخت ندارید'))return;
-  const sp=canonicalSupplierName(v('pay-sp')),amt=uf(v('pay-amt'));
+  const sp=canonicalSupplierName(resolveSupplierName(v('pay-sp'))),amt=uf(v('pay-amt'));
   const payAmount=moneyNumber(amt);
   if(!sp||sp==='—'||!amt){toast('تامین‌کننده و مبلغ الزامی است','err');return;}
   if(payAmount<=0){toast('مبلغ پرداخت باید بزرگ‌تر از صفر باشد','err');return;}
@@ -21915,7 +22489,7 @@ function autofillDueDate(){
   if(!prof||!prof.payment_terms)return;
   const days=parseInt(faToEn(String(prof.payment_terms)).replace(/[^0-9]/g,''),10);
   if(!days)return;
-  const base=v('p-id')||todayJalali();
+  const base=_pFormInvDate||todayJalali();
   if(!isValidJalali(base))return;
   dd.value=addDaysToJalali(base,days);
 }

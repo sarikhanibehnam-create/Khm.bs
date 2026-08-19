@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json, os, hashlib, datetime, shutil, re
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qs
 
 import db
 
@@ -129,6 +129,10 @@ PERM_KEYS = [
     # [v140] ثبت/ویرایش/حذف اسناد تحویل مدارک. پیش از این هیچ مجوزی نداشت و
     # هر کاربر واردشده‌ای می‌توانست سند مالی بسازد، تغییر دهد و حذف کند.
     'invoice_docs_edit',
+    # [v151] مجوز محدود «فقط گردش مالی همهٔ تأمین‌کننده‌ها»: دادهٔ کامل مالی
+    # تأمین‌کننده‌ها را می‌گیرد، بدون اینکه خریدهای کارشناسان در بقیهٔ صفحه‌ها
+    # برایش باز شود (برخلاف view_all/view_all_purchases که همه‌جا اثر می‌گذارد).
+    'finance_view_all',
     'petty_deposit_view','petty_deposit_finance','petty_deposit_delivery','petty_deposit_review',
     'page_dashboard','page_cartable','page_purchase_new','page_purchases',
     'page_shipping_new','page_shippings','page_non_fulfill','page_price_compare',
@@ -818,15 +822,92 @@ def next_doc_id(conn, collection):
     r = conn.execute('SELECT MAX(id) m FROM docs WHERE collection=?', (collection,)).fetchone()
     return (r['m'] or 0) + 1
 
+_SUP_DOC_COLLECTIONS = {'contracts', 'invoice_docs', 'contract_payments', 'returns',
+                        'manual_receipts', 'need_declarations', 'nf_records', 'ship_queue'}
+
+
+def _resolve_doc_suppliers(conn, collection, data):
+    """[v149] فیلدهای تأمین‌کنندهٔ اسناد از نگهبان هم‌نامی رد می‌شوند."""
+    if collection not in _SUP_DOC_COLLECTIONS or not isinstance(data, dict):
+        return data
+    for fld in ('supplier', 'party', 'seller', 'vendor'):
+        v = data.get(fld)
+        if isinstance(v, str) and v.strip():
+            nv = resolve_supplier_display(conn, v)
+            if nv != v:
+                data[fld] = nv
+    items = data.get('items')
+    if isinstance(items, list):
+        for it in items:
+            if isinstance(it, dict) and isinstance(it.get('supplier'), str) and it['supplier'].strip():
+                nv = resolve_supplier_display(conn, it['supplier'])
+                if nv != it['supplier']:
+                    it['supplier'] = nv
+    return data
+
+
+def backfill_purchase_inv_dates(conn, inv_doc, actor=None):
+    """[v150] ملاک تاریخی خرید = تاریخ تحویل مدارک به مالی.
+    موقع ثبت فاکتور (invoice_docs)، تاریخ فاکتور روی خریدهای بدون تاریخِ درخواست‌های
+    مرتبط می‌نشیند. قاعدهٔ «اولین فاکتور ملاک است»: خریدهای دارای تاریخ (دستی یا از
+    فاکتور قبلی) هرگز بازنویسی نمی‌شوند. سروری است تا مستقل از سطح دسترسیِ کلاینتِ
+    ثبت‌کننده همیشه درست کار کند."""
+    inv_date = str((inv_doc or {}).get('invoice_date') or '').strip()
+    reqs = [str(x).strip() for x in ((inv_doc or {}).get('req_numbers') or [])]
+    reqs = [x for x in reqs if x]
+    if not inv_date or not reqs:
+        return 0
+    # تأمین‌کنندهٔ ناشناس («—»/خالی) در نگهبان تطبیق تأمین‌کننده معادل خالی است؛
+    # وگرنه فاکتورهای بدون نام تأمین‌کننده هیچ خریدی را پُر نمی‌کردند.
+    _raw_sup = str((inv_doc or {}).get('supplier') or '').strip()
+    if _raw_sup in ('—', '-', '–'):
+        _raw_sup = ''
+    supk = supplier_canonical_key(_raw_sup)
+    changed_ids = []
+    for r in conn.execute('SELECT id, req_number, supplier, date, extra_json FROM purchases').fetchall():
+        if str(r['req_number'] or '').strip() not in reqs:
+            continue
+        try:
+            e = json.loads(r['extra_json'] or '{}')
+            if not isinstance(e, dict):
+                e = {}
+        except (TypeError, json.JSONDecodeError):
+            e = {}
+        if str(e.get('inv_date') or '').strip() or str(r['date'] or '').strip():
+            continue  # اولین فاکتور ملاک است
+        if supk:
+            _praw = str(r['supplier'] or '').strip()
+            if _praw in ('—', '-', '–'):
+                _praw = ''
+            pk = supplier_canonical_key(_praw)
+            if pk and pk != supk:
+                continue
+        e['inv_date'] = inv_date
+        conn.execute('UPDATE purchases SET date=?, extra_json=? WHERE id=?',
+                     (inv_date, json.dumps(e, ensure_ascii=False), r['id']))
+        changed_ids.append(r['id'])
+    if changed_ids:
+        db.log_audit(conn, actor, 'update', 'purchases', None,
+                     after={'ids': changed_ids, 'inv_date': inv_date},
+                     note='تاریخ فاکتور خودکار از ثبت مدارک مالی (فاکتور ' +
+                          str((inv_doc or {}).get('invoice_no') or '') + ')')
+    return len(changed_ids)
+
+
 def create_doc(conn, collection, body, actor=None):
     body = dict(body)
     body.pop('_actor', None)
+    body = _resolve_doc_suppliers(conn, collection, body)
     body['id'] = next_doc_id(conn, collection)
     body['created_at'] = now_iso()
     conn.execute('INSERT INTO docs (collection, id, data, created_at) VALUES (?,?,?,?)',
                  (collection, body['id'], json.dumps(body, ensure_ascii=False), body['created_at']))
     db.log_audit(conn, actor, 'create', collection, body['id'], after=body)
+    _af = backfill_purchase_inv_dates(conn, body, actor) if collection == 'invoice_docs' else 0  # [v150]
     conn.commit()
+    if _af:
+        body = dict(body)
+        body['_autofilled_purchases'] = _af   # کلید گذرا؛ در سند ذخیره نمی‌شود
     return body
 
 def update_doc(conn, collection, rid, body, actor=None):
@@ -836,10 +917,15 @@ def update_doc(conn, collection, rid, body, actor=None):
     old = json.loads(row['data'])
     new = {**old, **body}
     new.pop('_actor', None)
+    new = _resolve_doc_suppliers(conn, collection, new)
     conn.execute('UPDATE docs SET data=? WHERE collection=? AND id=?',
                  (json.dumps(new, ensure_ascii=False), collection, rid))
     db.log_audit(conn, actor, 'update', collection, rid, before=old, after=new)
+    _af = backfill_purchase_inv_dates(conn, new, actor) if collection == 'invoice_docs' else 0  # [v150]
     conn.commit()
+    if _af:
+        new = dict(new)
+        new['_autofilled_purchases'] = _af
     return new
 
 def delete_doc(conn, collection, rid, actor=None):
@@ -935,12 +1021,85 @@ def resolve_or_create_supplier(conn, name, actor=None, revive=False):
 # اینجا ادغام در خودِ داده ثبت می‌شود، پس دیگر برنمی‌گردد.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# [v149] کلید کانونیکال تأمین‌کننده + نگهبان هم‌نامی زمان ثبت
+# موازی supplierCanonicalKey در فرانت‌اند: کلمات سازمانی (شرکت/فروشگاه/...) و
+# جداکننده‌ها حذف می‌شوند تا «شرکت شب شکن البرز» و «شب شکن البرز» یک کلید شوند.
+# ---------------------------------------------------------------------------
+_SUP_KEY_WORDS_RE = re.compile(
+    '(شرکت|فروشگاه|گروه|بازرگانی|صنایع|صنعتی|تولیدی|ایرانیان|ايرانيان|ایران|ايران|سهامی|خاص|عام|مسئولیت|محدود)')
+_SUP_KEY_SEPS_RE = re.compile('[\\s\\-_/،,.:؛;()\\[\\]{}]+')
+
+
+def supplier_canonical_key(name):
+    """کلید یکتاسازی نام تأمین‌کننده (دقیقاً منطق supplierCanonicalKey کلاینت)."""
+    s = (name or '').replace('ي', 'ی').replace('ك', 'ک')
+    s = re.sub('\\s+', ' ', s).strip().lower()
+    s = re.sub('[آأإٱ]', 'ا', s)
+    s = s.replace('ۀ', 'ه')
+    s = s.replace('\u200c', '').replace('\u200f', '').replace('\u200e', '')
+    s = _SUP_KEY_WORDS_RE.sub('', s)
+    s = _SUP_KEY_SEPS_RE.sub('', s)
+    s = s.replace('\u200c', '')
+    return s
+
+
+def resolve_supplier_display(conn, name):
+    """[v149] اگر name نام مستعار یک تأمین‌کنندهٔ موجود باشد، نام اصلی برمی‌گردد؛
+    در غیر این صورت خود name. فقط خواندنی است و داده‌ای تغییر نمی‌دهد.
+    اولویت ۱) نقشهٔ تغییر نام (تومب‌استون‌هایی که ادغام‌ها می‌سازند)
+    اولویت ۲) کلید کانونیکالِ یکتا میان تأمین‌کننده‌های فعال."""
+    raw = (name or '').strip()
+    if not raw or raw in ('—', '-') or is_protected_supplier(raw):
+        return name
+    n_raw = _norm_sup_name(raw)
+    rm = get_setting(conn, 'supplier_rename_map', {})
+    if isinstance(rm, dict) and rm:
+        for k, v in rm.items():
+            if isinstance(k, str) and isinstance(v, str) and v.strip() \
+                    and _norm_sup_name(k) == n_raw:
+                return v.strip()
+    k = supplier_canonical_key(raw)
+    if k:
+        hits = []
+        for r in conn.execute('SELECT name FROM suppliers WHERE COALESCE(is_active,1)=1').fetchall():
+            hn = _norm_sup_name(r['name'])
+            if hn == n_raw:
+                return name  # نام دقیقاً در فهرست فعال است؛ دست نمی‌زنیم
+            if supplier_canonical_key(r['name']) == k and hn not in [_norm_sup_name(x) for x in hits]:
+                hits.append(r['name'])
+        if len(hits) == 1:
+            return hits[0]
+    return name
+
+
 def _norm_sup_name(s):
     """نرمال‌سازی نام برای مقایسه: یکسان‌سازی ی/ک، حذف نیم‌فاصله و فاصله‌های اضافه."""
     s = (s or '').strip()
     s = s.replace('ي', 'ی').replace('ك', 'ک').replace('ۀ', 'ه').replace('ة', 'ه')
     s = s.replace('\u200c', ' ').replace('\u200f', ' ').replace('\u200e', ' ')
     return re.sub(r'\s+', ' ', s).strip()
+
+
+def new_supplier_block_error(conn, name, can_create):
+    """[v145] دروازهٔ ساخت نام تأمین‌کنندهٔ جدید.
+    چرا: پیش از این هر کاربر در فرم خرید هر نامی تایپ می‌کرد و سیستم بی‌صدا
+    می‌ساخت؛ نتیجه ده‌ها نام تکراری/غلط در فهرست شد. حالا نامِ ناشناس فقط با
+    مجوز create_supplier ساخته می‌شود؛ نامِ موجود (فعال یا پنهان) آزاد است."""
+    n = _norm_sup_name(name)
+    if not n or n in ('—', '-'):
+        return None
+    if can_create:
+        return None
+    row = conn.execute('SELECT 1 FROM suppliers WHERE name=?', ((name or '').strip(),)).fetchone()
+    if row:
+        return None
+    for r in conn.execute('SELECT name FROM suppliers').fetchall():
+        if _norm_sup_name(r['name']) == n:
+            return None
+    return {'ok': False, 'new_supplier_blocked': True,
+            'error': '«' + (name or '').strip() + '» در فهرست تأمین‌کنندگان نیست. ' +
+                     'ساخت تأمین‌کنندهٔ جدید فقط با مدیر است؛ لطفاً ابتدا از مدیر بخواهید نام را بسازد.'}
 
 
 def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
@@ -958,13 +1117,22 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
 
     stats = {'purchases': 0, 'purchase_items': 0, 'shipping_items': 0,
              'supplier_payments': 0, 'docs': 0, 'suppliers_removed': 0,
+             'sales_offset': 0, 'opening_balances': 0, 'tombstones': 0,
              'target': target, 'aliases': sorted(alias_set)}
 
     def matches(v):
         return _norm_sup_name(v) in alias_set
 
     # اطمینان از وجود رکورد مقصد
-    trow = conn.execute('SELECT id FROM suppliers WHERE name=?', (target,)).fetchone()
+    trow = conn.execute('SELECT id, is_active FROM suppliers WHERE name=?', (target,)).fetchone()
+    # [v145] مقصد ادغام اگر پنهان بود فعال می‌شود — ادغام یعنی «این نام بماند».
+    # پیش از این ادغام به نامِ غیرفعال انجام می‌شد و شرکت کلاً از فهرست ناپدید
+    # می‌شد (نمونهٔ واقعی: پیشرو آریا فوم و برازش صنعت).
+    if trow and not dry_run and not trow['is_active'] and trow['id']:
+        conn.execute('UPDATE suppliers SET is_active=1, updated_at=? WHERE id=?',
+                     (now_iso(), trow['id']))
+        db.log_audit(conn, actor, 'reactivate', 'suppliers', trow['id'],
+                     note='مقصد ادغام بود و پنهان بود؛ خودکار فعال شد')
     if not trow and not dry_run:
         cur = conn.execute(
             'INSERT INTO suppliers (name, is_active, created_at, updated_at) VALUES (?,1,?,?)',
@@ -1010,8 +1178,9 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
                              (target, target_id, r['id']))
 
     # ۵) اسناد JSON: قراردادها، فاکتورها، و هر مجموعه‌ای که نام تامین‌کننده دارد
+    #    [v149] nf_records و ship_queue هم پوشش داده شدند.
     for coll in ('contracts', 'invoice_docs', 'contract_payments', 'returns',
-                 'manual_receipts', 'need_declarations'):
+                 'manual_receipts', 'need_declarations', 'nf_records', 'ship_queue'):
         for r in conn.execute('SELECT id, data FROM docs WHERE collection=?', (coll,)).fetchall():
             try:
                 d = json.loads(r['data'])
@@ -1034,6 +1203,21 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
                     conn.execute('UPDATE docs SET data=? WHERE collection=? AND id=?',
                                  (json.dumps(d, ensure_ascii=False), coll, r['id']))
 
+    # ۵-ب) [v149] فروش: تأمین‌کنندهٔ تهاتر — پیش از این جا می‌ماند و در گردش
+    #      مالی همان شرکت با نام قدیمی ردیف جدا می‌ساخت.
+    for r in conn.execute('SELECT id, offset_supplier FROM sales').fetchall():
+        if matches(r['offset_supplier']):
+            stats['sales_offset'] += 1
+            if not dry_run:
+                conn.execute('UPDATE sales SET offset_supplier=? WHERE id=?', (target, r['id']))
+
+    # ۵-ج) [v149] مانده‌های اول دوره (settings.opening_balances — کلید = نام تأمین‌کننده)
+    ob_bal = get_setting(conn, 'opening_balances', {})
+    ob_del = []
+    if isinstance(ob_bal, dict):
+        ob_del = [k for k in list(ob_bal.keys()) if matches(k)]
+        stats['opening_balances'] = len(ob_del)
+
     # ۶) حذف واقعی رکوردهای تکراری (نه صرفاً غیرفعال‌سازی)
     #    سرفصل‌های هزینه هرگز حذف نمی‌شوند، حتی اگر در فهرست ادغام آمده باشند.
     for r in conn.execute('SELECT id, name FROM suppliers').fetchall():
@@ -1049,12 +1233,258 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
                 conn.execute('DELETE FROM suppliers WHERE id=?', (r['id'],))
 
     if not dry_run:
+        # [v149] ماندهٔ اول دوره: کلیدهای مستعار به نام اصلی منتقل می‌شوند؛ اگر
+        # نام اصلی خودش مانده داشت، مبلغ او حفظ و کلید مستعار «تعارض» ثبت می‌شود.
+        if ob_del and isinstance(ob_bal, dict):
+            tgt_key = next((k for k in ob_bal.keys() if _norm_sup_name(k) == target), None)
+            for k in ob_del:
+                val = ob_bal[k]
+                if tgt_key is None:
+                    tgt_key = target
+                    if isinstance(val, dict):
+                        val = dict(val)
+                        val['supplier'] = target
+                    ob_bal[target] = val
+                else:
+                    stats.setdefault('opening_conflicts', []).append(k)
+                del ob_bal[k]
+            set_setting(conn, 'opening_balances', ob_bal)
+
+        # [v149] فهرست «حذف‌شده‌ها»: نه نام اصلی و نه نام‌های ادغامی نباید در آن بمانند
+        dls = get_setting(conn, 'deleted_suppliers', [])
+        if isinstance(dls, list) and dls:
+            kept = [x for x in dls
+                    if _norm_sup_name(str(x)) != target and _norm_sup_name(str(x)) not in alias_set]
+            if len(kept) != len(dls):
+                set_setting(conn, 'deleted_suppliers', kept)
+
+        # [v149] تومب‌استون: بعد از ادغام، هر بار نام قدیمی در فرم‌ها تایپ شود
+        # سرور با نگهبان هم‌نامی خودش آن را به نام اصلی تبدیل می‌کند.
+        rmap = get_setting(conn, 'supplier_rename_map', {})
+        if not isinstance(rmap, dict):
+            rmap = {}
+        changed_rm = False
+        for a in alias_set:
+            if a and a != target and rmap.get(a) != target:
+                rmap[a] = target
+                changed_rm = True
+                stats['tombstones'] += 1
+        # زنجیره‌ها: مقصدهای قبلی که حالا خودشان مستعار شده‌اند به مقصد جدید وصل شوند
+        for k in list(rmap.keys()):
+            if _norm_sup_name(str(rmap.get(k))) in alias_set:
+                rmap[k] = target
+                changed_rm = True
+        if changed_rm:
+            set_setting(conn, 'supplier_rename_map', rmap)
+
         db.log_audit(conn, actor, 'merge', 'suppliers', target_id,
                      before={'aliases': sorted(alias_set)},
                      after={'target': target, 'stats': {k: v for k, v in stats.items()
                                                         if isinstance(v, int)}},
                      note='ادغام تامین‌کننده: ' + '، '.join(sorted(alias_set)) + ' ← ' + target)
         conn.commit()
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# [v149] گزارش گروه‌های هم‌نام تأمین‌کننده در همهٔ منابع (فقط خواندنی)
+# ---------------------------------------------------------------------------
+def supplier_dups_report(conn):
+    """اسکن می‌کند و نام‌هایی را که با کلید کانونیکال یکی می‌شوند گروه‌بندی می‌کند.
+    خروجی برای صفحهٔ سلامت داده: کاربر گروه‌ها را بازبینی و تأیید می‌کند؛
+    هیچ داده‌ای در این تابع تغییر نمی‌کند."""
+    from collections import defaultdict
+    info = {}  # norm -> dict(name, counts, active_profile, inactive_profile, opening)
+
+    def bump(raw, src_key, n=1):
+        raw = (raw or '').strip()
+        if not raw or raw in ('—', '-') or is_protected_supplier(raw):
+            return None
+        nrm = _norm_sup_name(raw)
+        if not nrm or nrm in ('—', '-'):
+            return None
+        d = info.setdefault(nrm, {'name': raw, 'counts': defaultdict(int),
+                                  'active_profile': False, 'inactive_profile': False,
+                                  'opening': None})
+        d['counts'][src_key] += n
+        return d
+
+    # پروفایل‌ها اول؛ نامِ رکورد پروفایل به‌عنوان نام نمایشی ترجیح دارد
+    for r in conn.execute('SELECT name, is_active FROM suppliers').fetchall():
+        d = bump(r['name'], 'profiles')
+        if d is not None:
+            if r['is_active']:
+                d['active_profile'] = True
+            else:
+                d['inactive_profile'] = True
+    for r in conn.execute('SELECT supplier, COUNT(*) c FROM purchases WHERE supplier IS NOT NULL GROUP BY supplier').fetchall():
+        bump(r['supplier'], 'purchases', r['c'])
+    for r in conn.execute('SELECT supplier, COUNT(*) c FROM supplier_payments WHERE supplier IS NOT NULL GROUP BY supplier').fetchall():
+        bump(r['supplier'], 'supplier_payments', r['c'])
+    for r in conn.execute('SELECT supplier, COUNT(*) c FROM shipping_items WHERE supplier IS NOT NULL GROUP BY supplier').fetchall():
+        bump(r['supplier'], 'shipping_items', r['c'])
+    try:
+        for r in conn.execute("SELECT offset_supplier s, COUNT(*) c FROM sales WHERE offset_supplier IS NOT NULL AND offset_supplier<>'' GROUP BY offset_supplier").fetchall():
+            bump(r['s'], 'sales_offset', r['c'])
+    except Exception:
+        pass
+    for r in conn.execute('SELECT extra_json FROM purchase_items').fetchall():
+        try:
+            e = json.loads(r['extra_json'] or '{}')
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(e, dict) and e.get('supplier'):
+            bump(e['supplier'], 'purchase_items')
+    for coll in ('contracts', 'invoice_docs', 'contract_payments', 'returns',
+                 'manual_receipts', 'need_declarations', 'nf_records', 'ship_queue'):
+        for r in conn.execute('SELECT data FROM docs WHERE collection=?', (coll,)).fetchall():
+            try:
+                d0 = json.loads(r['data'])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(d0, dict):
+                continue
+            for fld in ('supplier', 'party', 'seller', 'vendor'):
+                if d0.get(fld):
+                    bump(d0[fld], 'docs')
+            for it in (d0.get('items') or []):
+                if isinstance(it, dict) and it.get('supplier'):
+                    bump(it['supplier'], 'docs')
+
+    ob = get_setting(conn, 'opening_balances', {})
+    if isinstance(ob, dict):
+        for k, v in ob.items():
+            d = bump(k, 'opening_src', 0)
+            if d is not None:
+                d['opening'] = (v.get('amount') if isinstance(v, dict) else v)
+
+    groups = defaultdict(list)
+    for nrm, d in info.items():
+        k = supplier_canonical_key(d['name'])
+        if len(k) >= 2:
+            groups[k].append(d)
+
+    out = []
+    for k, lst in groups.items():
+        # نام‌های خامِ یکسان را یکی می‌کنیم (مثلاً اختلاف ی/ك)
+        by_name = {}
+        for d in lst:
+            cur = by_name.get(d['name'])
+            if cur is None:
+                by_name[d['name']] = d
+            else:
+                for s2, n2 in d['counts'].items():
+                    cur['counts'][s2] += n2
+                cur['active_profile'] = cur['active_profile'] or d['active_profile']
+                cur['inactive_profile'] = cur['inactive_profile'] or d['inactive_profile']
+                if cur['opening'] is None:
+                    cur['opening'] = d['opening']
+        variants = list(by_name.values())
+        if len(variants) < 2:
+            continue
+
+        def usage(v):
+            return sum(v['counts'].values()) + (1 if v['opening'] is not None else 0)
+
+        variants.sort(key=usage, reverse=True)
+        actives = [v for v in variants if v['active_profile']]
+        suggested = actives[0]['name'] if actives else variants[0]['name']
+        flags = []
+        if len(actives) > 1:
+            flags.append('بیش از یک پروفایل فعال')
+        if sum(1 for v in variants if v['opening'] is not None) > 1:
+            flags.append('ماندهٔ اول دوره در چند نام')
+        if not any(v['active_profile'] or v['inactive_profile'] for v in variants):
+            flags.append('بدون پروفایل (فقط در اسناد)')
+        out.append({'key': k, 'suggested': suggested, 'flags': flags,
+                    'total': sum(usage(v) for v in variants),
+                    'checked': not flags,
+                    'variants': [{'name': v['name'], 'counts': dict(v['counts']),
+                                  'active_profile': v['active_profile'],
+                                  'inactive_profile': v['inactive_profile'],
+                                  'opening': v['opening']} for v in variants]})
+    out.sort(key=lambda g: g['total'], reverse=True)
+    return {'ok': True, 'groups': out[:300], 'group_count': len(out)}
+
+
+# ---------------------------------------------------------------------------
+# [v146] تغییرنام واقعی تأمین‌کننده + انتقال همهٔ ارجاع‌ها در یک تراکنش.
+# پیش از این مسیرِ ویرایش پروفایل در سرور وجود نداشت و PUT فرانت با ۴۰۴ رد و
+# بی‌صدا قورت داده می‌شد؛ برای همین ویرایش اسم، بعد از رفرش برمی‌گشت.
+# این تابع نام را در خودِ ردیف عوض می‌کند و همهٔ ارجاع‌های متنی قدیمی
+# (خرید، ردیف خرید، حمل، پرداخت، اسناد JSON) را هم به نام جدید می‌نویسد.
+# ---------------------------------------------------------------------------
+
+def rename_supplier_tx(conn, rid, new_name, actor=None):
+    """خروجی: dict شمارش تغییرات یا {'error': ...}."""
+    row = conn.execute('SELECT * FROM suppliers WHERE id=?', (rid,)).fetchone()
+    if not row:
+        return {'error': 'تأمین‌کننده یافت نشد'}
+    old = row['name']
+    new = (new_name or '').strip()
+    nn = _norm_sup_name(new)
+    if not nn or nn in ('—', '-'):
+        return {'error': 'نام جدید معتبر نیست'}
+    if nn == _norm_sup_name(old):
+        return {'renamed': 0, 'name': old}  # فقط اختلاف تایپی/فاصله — همان نام
+    # تداخل با ردیف موجود دیگر؟ (تکراری‌سازی ممنوع — برای آن ادغام هست)
+    for r in conn.execute('SELECT id, name FROM suppliers WHERE id<>?', (rid,)).fetchall():
+        if _norm_sup_name(r['name']) == nn:
+            return {'conflict': True,
+                    'error': 'نام «' + r['name'] + '» از قبل در فهرست هست؛ برای یکی‌کردن از «ادغام تأمین‌کنندگان» استفاده کنید.'}
+    onorm = _norm_sup_name(old)
+    def _m(v):
+        return _norm_sup_name(v) == onorm
+    stats = {'renamed': 1, 'old': old, 'name': new,
+             'purchases': 0, 'purchase_items': 0, 'shipping_items': 0,
+             'supplier_payments': 0, 'docs': 0}
+    for r in conn.execute('SELECT id, supplier FROM purchases').fetchall():
+        if _m(r['supplier']):
+            stats['purchases'] += 1
+            conn.execute('UPDATE purchases SET supplier=?, supplier_id=? WHERE id=?', (new, rid, r['id']))
+    # purchase_items: نام تأمین‌کننده داخل extra_json ردیف‌هاست (مثل منطق ادغام)
+    for r in conn.execute('SELECT id, extra_json FROM purchase_items').fetchall():
+        try:
+            e = json.loads(r['extra_json'] or '{}')
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(e, dict) and _m(e.get('supplier')):
+            stats['purchase_items'] += 1
+            e['supplier'] = new
+            conn.execute('UPDATE purchase_items SET extra_json=? WHERE id=?',
+                         (json.dumps(e, ensure_ascii=False), r['id']))
+    for r in conn.execute('SELECT id, supplier FROM shipping_items').fetchall():
+        if _m(r['supplier']):
+            stats['shipping_items'] += 1
+            conn.execute('UPDATE shipping_items SET supplier=? WHERE id=?', (new, r['id']))
+    for r in conn.execute('SELECT id, supplier FROM supplier_payments').fetchall():
+        if _m(r['supplier']):
+            stats['supplier_payments'] += 1
+            conn.execute('UPDATE supplier_payments SET supplier=?, supplier_id=? WHERE id=?', (new, rid, r['id']))
+    for coll in ('contracts', 'invoice_docs', 'contract_payments', 'returns',
+                 'manual_receipts', 'need_declarations'):
+        for r in conn.execute('SELECT id, data FROM docs WHERE collection=?', (coll,)).fetchall():
+            try:
+                d = json.loads(r['data'])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(d, dict):
+                continue
+            changed = False
+            for fld in ('supplier', 'party', 'seller', 'vendor'):
+                if _m(d.get(fld)):
+                    d[fld] = new; changed = True
+            for it in (d.get('items') or []):
+                if isinstance(it, dict) and _m(it.get('supplier')):
+                    it['supplier'] = new; changed = True
+            if changed:
+                stats['docs'] += 1
+                conn.execute('UPDATE docs SET data=? WHERE collection=? AND id=?',
+                             (json.dumps(d, ensure_ascii=False), coll, r['id']))
+    db.log_audit(conn, actor, 'rename', 'suppliers', rid,
+                 before={'name': old},
+                 after={'name': new, 'refs': {k: v for k, v in stats.items() if isinstance(v, int)}},
+                 note='تغییرنام تأمین‌کننده: ' + old + ' ← ' + new)
     return stats
 
 
@@ -1541,6 +1971,13 @@ class Handler(BaseHTTPRequestHandler):
                 lst = backup_list()
                 self.send_json({'ok': True, 'every_hours': BACKUP_EVERY_HOURS,
                                 'last': lst[0] if lst else None, 'rows': lst})
+            elif path == '/api/supplier_dups_preview':
+                # [v149] پیش‌نمایش گروه‌های هم‌نام برای ادغام خودکار (بدون تغییر داده)
+                _su = self.get_session_user(conn)
+                _allowed = (self.session_can(_su, 'manage_suppliers') or
+                            self.session_can(_su, 'edit_supplier'))
+                if not self.require(_su, _allowed): return
+                self.send_json(supplier_dups_report(conn))
             elif path == '/api/items':
                 self.send_json(get_docs(conn, 'items'))
             elif path == '/api/requests':
@@ -1740,6 +2177,24 @@ class Handler(BaseHTTPRequestHandler):
             sales_returns_ = []
         _my_pids, _ = self.fin_my_purchase_ids(conn, _su)
 
+        # [v151] دامنهٔ مخصوص «گردش مالی تأمین‌کننده‌ها»: اگر کاربر مجوز
+        # finance_view_all را دارد (ولی view_all ندارد)، یک نسخهٔ کامل از
+        # مجموعه‌های لازم برای صفحهٔ مالی جداگانه می‌فرستیم تا صفحهٔ مالی
+        # همهٔ تأمین‌کننده‌ها را درست نشان بدهد، ولی D.purchases و بقیهٔ
+        # صفحه‌ها همچنان فقط دادهٔ خودش را ببینند.
+        _finscope = None
+        if (not _fin_all) and _fin_any and self.session_can(_su, 'finance_view_all'):
+            _finscope = {
+                'purchases': [purchase_row_to_dict(conn, r) for r in
+                              conn.execute('SELECT * FROM purchases ORDER BY id')],
+                'supplier_payments': [dict(r) for r in
+                                      conn.execute('SELECT * FROM supplier_payments ORDER BY id')],
+                'invoice_docs': get_docs(conn, 'invoice_docs'),
+                'contracts': get_docs(conn, 'contracts'),
+                'contract_payments': get_docs(conn, 'contract_payments'),
+                'petty_cash': get_docs(conn, 'petty_cash'),
+            }
+
         def _fin_docs(coll):
             d = get_docs(conn, coll)
             if not _fin_any:
@@ -1792,7 +2247,8 @@ class Handler(BaseHTTPRequestHandler):
             'nf_records': get_docs(conn, 'nf_records'),   # [v125] بایگانی عدم تحقق
             # [v143.1] شمارهٔ آزاد بعدی فرم عدم تحقق (سراسری — برای پیشنهاد خودکار)
             'nf_next_number': next_nf_number(conn),
-            'server_build': 'v144',   # نسخهٔ ساخت سرور — برای نمایش در نشان نسخه
+            '_finscope': _finscope,   # [v151]=None مگر برای دارندهٔ مجوز finance_view_all
+            'server_build': 'v151',   # نسخهٔ ساخت سرور — برای نمایش در نشان نسخه
             # [v125] petty_tracking در جدول settings ذخیره می‌شود ولی فرانت آن را
             # در سطح بالا (D.petty_tracking) می‌خواند. پیش‌تر ارسال نمی‌شد و
             # همیشه خالی می‌ماند؛ داده‌اش فقط از نسخه سخت‌کد می‌آمد.
@@ -2122,7 +2578,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/suppliers':
             if not self.require(session_user, True): return  # فقط نیاز به ورود؛ بخشی از فرم ثبت خرید است
             name = (body.get('value') or body.get('name') or body.get('supplier') or '').strip()
+            name = resolve_supplier_display(conn, name)  # [v149]
             if name:
+                _err = new_supplier_block_error(conn, name, self.session_can(session_user, 'create_supplier'))
+                if _err: self.send_json(_err, 403); return
                 # کاربر صریحاً «افزودن» زده → اگر قبلاً حذف شده بود، دوباره فعال شود
                 resolve_or_create_supplier(conn, name, actor, revive=True)
                 conn.commit()
@@ -2156,6 +2615,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/supplier_payments':
             if not self.require(session_user, self.session_can(session_user, 'register_payment')): return
             sname = (body.get('supplier') or '').strip()
+            sname = resolve_supplier_display(conn, sname)  # [v149]
+            body['supplier'] = sname
+            _err = new_supplier_block_error(conn, sname, self.session_can(session_user, 'create_supplier'))
+            if _err: self.send_json(_err, 403); return
             sid = resolve_or_create_supplier(conn, sname, actor) if sname else body.get('supplier_id')
             cur = conn.execute(
                 '''INSERT INTO supplier_payments (supplier_id, supplier, purchase_id, amount, date, method, note, created_by, created_at)
@@ -2167,6 +2630,31 @@ class Handler(BaseHTTPRequestHandler):
             db.log_audit(conn, actor, 'create', 'supplier_payments', cur.lastrowid, after=pay)
             conn.commit()
             self.send_json(pay); return
+
+        # [v148] مانده افتتاحیه تامین‌کننده — upsert امن با مجوز register_payment.
+        # پیش از این ذخیره آن از مسیر PUT/POST تنظیمات عمومی (مجوز manage_lists)
+        # انجام می‌شد و برای ثبت‌کنندگان بدون آن مجوز با ۴۰۳ بی‌صدا شکست می‌خورد؛
+        # مانده فقط در localStorage همان مرورگر می‌ماند و برای بقیه هرگز ذخیره نمی‌شد.
+        if path == '/api/opening_balances':
+            if not self.require(session_user, self.session_can(session_user, 'register_payment')): return
+            sup = (body.get('supplier') or '').strip()
+            sup = resolve_supplier_display(conn, sup)  # [v149]
+            if not sup:
+                self.send_json({'ok': False, 'error': 'نام تامین‌کننده الزامی است'}, 400); return
+            obs = get_setting(conn, 'opening_balances', {})
+            if not isinstance(obs, dict): obs = {}
+            existed = sup in obs
+            ob = {'supplier': sup,
+                  'type': body.get('type') or 'debt',
+                  'amount': float(body.get('amount', 0) or 0),
+                  'date': (body.get('date') or '').strip(),
+                  'note': (body.get('note') or '').strip(),
+                  '_actor': actor}
+            obs[sup] = ob
+            set_setting(conn, 'opening_balances', obs)
+            db.log_audit(conn, actor, 'update' if existed else 'create', 'opening_balances', sup, after=ob)
+            conn.commit()
+            self.send_json({'ok': True, 'ob': ob}); return
 
         # ---- لیست‌های ساده‌ی رشته‌ای ----
         if parts[0] == 'api' and len(parts) == 2 and parts[1] in SIMPLE_LISTS:
@@ -2248,6 +2736,51 @@ class Handler(BaseHTTPRequestHandler):
                               res['shipping_items'] + res['supplier_payments'] + res['docs'])
             res['removed'] = res['suppliers_removed']
             self.send_json(res); return
+
+        if path == '/api/suppliers_normalize_apply':
+            # [v149] ادغام خودکار گروه‌های هم‌نام — با پشتیبان اجباری قبل از شروع.
+            allowed = (self.session_can(session_user, 'manage_suppliers') or
+                       self.session_can(session_user, 'edit_supplier'))
+            if not self.require(session_user, allowed): return
+            groups = body.get('groups') or []
+            if not isinstance(groups, list) or not groups:
+                self.send_json({'ok': False, 'error': 'هیچ گروهی برای ادغام ارسال نشده است'}, 400); return
+            if len(groups) > 200:
+                self.send_json({'ok': False, 'error': 'تعداد گروه‌ها بیش از حد مجاز است'}, 400); return
+            bk = make_backup(reason='قبل از ادغام خودکار تأمین‌کننده‌های هم‌نام', actor=actor)
+            if not bk.get('ok'):
+                self.send_json({'ok': False, 'error': 'پشتیبان‌گیری قبل از ادغام انجام نشد؛ برای امنیت داده اجرا متوقف شد: ' + str(bk.get('error', ''))}, 500); return
+            results, errors = [], []
+            for g in groups[:200]:
+                try:
+                    tgt = (g.get('target') or '').strip()
+                    als = g.get('aliases') or []
+                    if isinstance(als, str):
+                        als = [als]
+                    res = merge_suppliers_tx(conn, tgt, als, actor, dry_run=False)
+                    if res.get('error'):
+                        errors.append({'target': tgt, 'error': res['error']})
+                    else:
+                        results.append(res)
+                except Exception as e:
+                    conn.rollback()
+                    errors.append({'target': (g.get('target') or ''), 'error': str(e)})
+            db.log_audit(conn, actor, 'normalize', 'suppliers', None,
+                         after={'groups_done': len(results), 'errors': errors,
+                                'backup': bk.get('file')},
+                         note='ادغام خودکار هم‌نام‌ها (' + str(len(results)) + ' گروه)؛ پشتیبان: ' + str(bk.get('file', '')))
+            conn.commit()
+            self.send_json({'ok': bool(results) and not errors,
+                            'partial': bool(errors and results),
+                            'backup': bk.get('file'),
+                            'results': results, 'errors': errors}); return
+
+        if path == '/api/inquiry_three_page':
+            # [v147] مسیر اختصاصی ثبت/ویرایش «استعلام سه برگی» — رکوردبه‌رکورد و امن.
+            # پیش از این ذخیره از طریق settings عمومی انجام می‌شد که به مجوز manage_lists
+            # نیاز داشت؛ رکورد کارشناسان هرگز روی سرور ذخیره نمی‌شد و با اولین رفرش
+            # ناپدید می‌گشت (در حالی که مرورگر «ذخیره شد» نشان می‌داد).
+            self.handle_inq3_upsert(conn, body, actor, session_user); return
 
         if path == '/api/settings':
             # ذخیره‌ی یکجای تنظیمات (فرانت‌اند ابتدا PUT و سپس POST را امتحان می‌کند)
@@ -2333,6 +2866,11 @@ class Handler(BaseHTTPRequestHandler):
                     return
             purchase.pop('_force_duplicate', None)
             sup_name = (purchase.get('supplier') or '').strip()
+            # [v149] نگهبان هم‌نامی: نام مستعار به نام اصلی تبدیل می‌شود تا نام تکراری ساخته نشود
+            sup_name = resolve_supplier_display(conn, sup_name)
+            purchase['supplier'] = sup_name
+            _err = new_supplier_block_error(conn, sup_name, self.session_can(session_user, 'create_supplier'))
+            if _err: self.send_json(_err, 403); return
             sup_id = resolve_or_create_supplier(conn, sup_name, actor) if sup_name else None
             # فرانت‌اند فعلی فیلدهای «inv_date» و «paid» را می‌فرستد (نه date/paid_amount)؛
             # برای اینکه ستون‌های ایندکس‌شده (برای گزارش پیگیری پرداخت) واقعاً پر شوند،
@@ -2365,6 +2903,8 @@ class Handler(BaseHTTPRequestHandler):
             pid = cur.lastrowid
             for it in line_items:
                 it = dict(it)
+                if (it.get('supplier') or '').strip():
+                    it['supplier'] = resolve_supplier_display(conn, it['supplier'])  # [v149]
                 li_extra = extras(it, KNOWN_LINEITEM)
                 # [v142.6] no_delivery_needed: قلم بدون نیاز به تحویل انبار
                 _no_delivery = 1 if it.get('no_delivery_needed') else 0
@@ -2393,6 +2933,10 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 paid_amt = 0.0
             offset_supplier = (sale.get('offset_supplier') or '').strip()
+            offset_supplier = resolve_supplier_display(conn, offset_supplier)  # [v149]
+            sale['offset_supplier'] = offset_supplier
+            _err = new_supplier_block_error(conn, offset_supplier, self.session_can(session_user, 'create_supplier'))
+            if _err: self.send_json(_err, 403); return
             extra = extras(sale, KNOWN_SALE)
             offset_payment_id = None
             if offset_supplier and total > 0:
@@ -2468,6 +3012,8 @@ class Handler(BaseHTTPRequestHandler):
             # اگر فروش اصلی تهاتر با تامین‌کننده داشت، به همان میزان برگشتی، بدهی به آن تامین‌کننده دوباره برمی‌گردد
             sale_extra = json.loads(sale_row['extra_json'] or '{}')
             offset_supplier = sale_row['offset_supplier']
+            _err = new_supplier_block_error(conn, offset_supplier, self.session_can(session_user, 'create_supplier'))
+            if _err: self.send_json(_err, 403); return
             reversal_payment_id = None
             if offset_supplier and return_total > 0:
                 sup_id = resolve_or_create_supplier(conn, offset_supplier, actor)
@@ -2593,6 +3139,53 @@ class Handler(BaseHTTPRequestHandler):
                             'min_len': PASSWORD_MIN_LEN}); return
 
         self.send_json({'error': 'not found'}, 404)
+
+    def handle_inq3_upsert(self, conn, body, actor, session_user):
+        """[v147] ثبت/به‌روزرسانی یک رکورد «استعلام سه برگی» بر اساس id.
+        هر کاربر واردشده می‌تواند رکورد خودش را ثبت/ویرایش کند؛ ویرایش رکورد
+        دیگران فقط برای مدیر/admin است. نوشتن رکوردبه‌رکورد است تا ذخیره‌های
+        هم‌زمان چند کاربر همدیگر را بازنویسی نکنند (رفع ناپدیدشدن رکوردها)."""
+        if not isinstance(body, dict):
+            self.send_json({'ok': False, 'error': 'بدنه نامعتبر است'}, 400); return
+        rec = dict(body)
+        rec.pop('_actor', None)
+        try:
+            rid = int(rec.get('id'))
+        except (TypeError, ValueError):
+            self.send_json({'ok': False, 'error': 'شناسه رکورد نامعتبر است'}, 400); return
+        role = (session_user['role'] or '') if session_user else ''
+        is_mgr = role in ('admin', 'manager')
+        arr = get_setting(conn, 'inquiry_three_page', [])
+        if not isinstance(arr, list):
+            arr = []
+        idx = -1
+        for i, x in enumerate(arr):
+            if isinstance(x, dict) and x.get('id') == rid:
+                idx = i
+                break
+        if idx == -1:
+            # رکورد جدید: مالک همان کاربر جاری است (به مقدار بدنه اعتماد نمی‌کنیم)
+            rec['id'] = rid
+            rec['expert'] = actor
+            arr.append(rec)
+            action = 'create'
+        else:
+            old = arr[idx]
+            owner = old.get('expert') or ''
+            if not is_mgr and owner and owner != actor:
+                self.send_json({'ok': False,
+                                'error': 'ویرایش این استعلام فقط برای ثبت‌کننده‌اش یا مدیر مجاز است'}, 403)
+                return
+            # مالکیت حفظ می‌شود حتی اگر مدیر ویرایش کند
+            rec['id'] = rid
+            rec['expert'] = owner or actor
+            arr[idx] = rec
+            action = 'update'
+        set_setting(conn, 'inquiry_three_page', arr)
+        db.log_audit(conn, actor, action, 'inquiry_three_page', rid,
+                     note='استعلام سه‌برگی شماره ' + str(rec.get('number') or ''))
+        conn.commit()
+        self.send_json({'ok': True, 'record': rec})
 
     def handle_settings_post(self, conn, path, body):
         key = unquote(path.split('/')[-1])
@@ -2738,9 +3331,24 @@ class Handler(BaseHTTPRequestHandler):
         if collection == 'suppliers':
             row = conn.execute('SELECT * FROM suppliers WHERE id=?', (rid,)).fetchone()
             if not row:
+                row = conn.execute('SELECT * FROM suppliers WHERE name=?', (rid,)).fetchone()
+            if not row:
                 self.send_json({'error': 'not found'}, 404); return
-            if not self.require(session_user, self.session_can(session_user, 'edit_supplier')): return
+            allowed_sup = (self.session_can(session_user, 'edit_supplier') or
+                           self.session_can(session_user, 'manage_suppliers'))
+            if not self.require(session_user, allowed_sup): return
             before = supplier_row_to_dict(row)
+            rid = row['id']
+            # [v146] تغییرنام واقعی: اگر name عوض شده، ارجاع‌ها هم منتقل می‌شوند
+            _new_name = (body.get('name') or '').strip()
+            if 'name' in body and _new_name and _norm_sup_name(_new_name) != _norm_sup_name(row['name']):
+                _rn = rename_supplier_tx(conn, rid, _new_name, actor)
+                if _rn.get('error'):
+                    self.send_json({'ok': False, 'conflict': bool(_rn.get('conflict')),
+                                    'error': _rn['error']}, 409 if _rn.get('conflict') else 400)
+                    return
+                conn.commit()
+                row = conn.execute('SELECT * FROM suppliers WHERE id=?', (rid,)).fetchone()
             fields = ['name', 'contact_person', 'phone', 'address', 'category', 'payment_terms',
                       'bank_account', 'rating', 'is_active', 'note']
             updates = {f: body[f] for f in fields if f in body}
@@ -2750,6 +3358,21 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute(f'UPDATE suppliers SET {set_clause} WHERE id=?', (*updates.values(), rid))
                 db.log_audit(conn, actor, 'update', 'suppliers', rid, before=before, after=updates)
                 conn.commit()
+            # [v146] اگر فعال شد، نام از بلک‌لیست آفلاین پنهان‌شده‌ها هم پاک شود
+            # تا مرورگر آن را مخفی نگه ندارد.
+            if body.get('is_active'):
+                _sr = conn.execute("SELECT value FROM settings WHERE key='deleted_suppliers'").fetchone()
+                if _sr and _sr[0]:
+                    try:
+                        _bl = json.loads(_sr[0])
+                    except (TypeError, json.JSONDecodeError):
+                        _bl = []
+                    _nn = _norm_sup_name(row['name'])
+                    _keep = [x for x in _bl if _norm_sup_name(x) != _nn]
+                    if len(_keep) != len(_bl):
+                        conn.execute("UPDATE settings SET value=? WHERE key='deleted_suppliers'",
+                                     (json.dumps(_keep, ensure_ascii=False),))
+                        conn.commit()
             out = supplier_row_to_dict(conn.execute('SELECT * FROM suppliers WHERE id=?', (rid,)).fetchone())
             self.send_json(out); return
 
@@ -2782,6 +3405,9 @@ class Handler(BaseHTTPRequestHandler):
                                         'conflicts': conflicts}, 409)
                         return
             if body.get('supplier'):
+                body['supplier'] = resolve_supplier_display(conn, body['supplier'])  # [v149]
+                _err = new_supplier_block_error(conn, body['supplier'], self.session_can(session_user, 'create_supplier'))
+                if _err: self.send_json(_err, 403); return
                 sid = resolve_or_create_supplier(conn, body['supplier'], actor)
                 body['supplier_id'] = sid
             # ادغام مقادیر جدید روی موجودی فعلی (مثل رفتار قبلی col[idx].update(body))
@@ -2931,12 +3557,17 @@ class Handler(BaseHTTPRequestHandler):
                 "SELECT COALESCE(SUM(CAST(qty AS REAL)*CAST(unit_price AS REAL)),0) t FROM sale_items WHERE sale_id=?",
                 (rid,)).fetchone()['t']
             new_offset_supplier = (known_updates.get('offset_supplier', row['offset_supplier']) or '').strip()
+            new_offset_supplier = resolve_supplier_display(conn, new_offset_supplier)  # [v149]
+            known_updates['offset_supplier'] = new_offset_supplier
             old_offset_payment_id = extra_existing.get('offset_payment_id')
             # اگر تامین‌کننده تهاتر تغییر کرده یا حذف شده، پرداخت تهاتر قبلی را پاک کن و در صورت نیاز دوباره بساز
             if old_offset_payment_id and (new_offset_supplier != (row['offset_supplier'] or '')):
                 conn.execute('DELETE FROM supplier_payments WHERE id=?', (old_offset_payment_id,))
                 extra_existing.pop('offset_payment_id', None)
                 old_offset_payment_id = None
+            if new_offset_supplier:
+                _err = new_supplier_block_error(conn, new_offset_supplier, self.session_can(session_user, 'create_supplier'))
+                if _err: self.send_json(_err, 403); return
             if new_offset_supplier and total > 0:
                 if old_offset_payment_id:
                     conn.execute('UPDATE supplier_payments SET amount=? WHERE id=?', (total, old_offset_payment_id))
@@ -3109,6 +3740,26 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'error': 'not found'}, 404); return
         collection, rid = parts[1], parts[2]
 
+        if collection == 'inquiry_three_page':
+            # [v147] حذف «استعلام سه برگی» — فقط مدیر/admin
+            role = (session_user['role'] or '') if session_user else ''
+            if not self.require(session_user, role in ('admin', 'manager')): return
+            try:
+                ridn = int(rid)
+            except (TypeError, ValueError):
+                self.send_json({'ok': False, 'error': 'شناسه نامعتبر است'}, 400); return
+            arr = get_setting(conn, 'inquiry_three_page', [])
+            if not isinstance(arr, list):
+                arr = []
+            new_arr = [x for x in arr if not (isinstance(x, dict) and x.get('id') == ridn)]
+            if len(new_arr) == len(arr):
+                self.send_json({'ok': False, 'error': 'رکورد یافت نشد'}, 404); return
+            set_setting(conn, 'inquiry_three_page', new_arr)
+            db.log_audit(conn, actor, 'delete', 'inquiry_three_page', ridn,
+                         note='حذف استعلام سه‌برگی')
+            conn.commit()
+            self.send_json({'ok': True}); return
+
         if collection in SIMPLE_LISTS:
             if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
             del_simple_list_value(conn, SIMPLE_LISTS[collection], rid)
@@ -3137,6 +3788,15 @@ class Handler(BaseHTTPRequestHandler):
                              note='حذف کامل (هیچ رکوردی به آن وصل نبود)')
                 conn.commit()
                 self.send_json({'ok': True, 'deleted': True, 'used': 0}); return
+            # [v145] حذف نامی که سند دارد فقط با تأیید دو مرحله‌ای (force=1) —
+            # کاربر باید صریحاً بداند که نام پنهان می‌شود نه اینکه سوابق پاک شود.
+            _qs = parse_qs(urlparse(self.path).query)
+            _force = (_qs.get('force', [''])[0] or '').lower() in ('1', 'true', 'yes')
+            if not _force:
+                self.send_json({'ok': False, 'needs_force': True, 'used': used,
+                                'error': 'این تأمین‌کننده ' + str(used) + ' سند متصل دارد (خرید/پرداخت/قرارداد). سوابق پاک نمی‌شود؛ نام فقط از فهرست‌ها پنهان می‌شود و با «نمایش حذف‌شده‌ها» برمی‌گردد. اگر نام تکراری است، ادغام بهتر است.'},
+                               409)
+                return
             # رکورد دارد → فقط غیرفعال، تا سوابق نشکند
             conn.execute('UPDATE suppliers SET is_active=0 WHERE id=?', (row['id'],))
             db.log_audit(conn, actor, 'deactivate', 'suppliers', row['id'], before=before,
@@ -3282,6 +3942,19 @@ class Handler(BaseHTTPRequestHandler):
             db.log_audit(conn, actor, 'delete', 'supplier_payments', rid)
             conn.commit()
             self.send_json({'ok': True}); return
+
+        # [v148] حذف مانده افتتاحیه یک تامین‌کننده (همان مسیر امن جدید)
+        if collection == 'opening_balances':
+            if not self.require(session_user, self.session_can(session_user, 'register_payment')): return
+            obs = get_setting(conn, 'opening_balances', {})
+            if not isinstance(obs, dict): obs = {}
+            existed = rid in obs
+            if existed:
+                del obs[rid]
+                set_setting(conn, 'opening_balances', obs)
+                db.log_audit(conn, actor, 'delete', 'opening_balances', rid)
+                conn.commit()
+            self.send_json({'ok': True, 'deleted': existed}); return
 
         if collection == 'items':
             if not self.require(session_user, self.session_can(session_user, 'manage_lists')): return
