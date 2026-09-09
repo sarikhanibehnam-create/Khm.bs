@@ -243,18 +243,29 @@ GENERIC_SETTING_KEYS = {
     'sticky_notes', 'supplier_categories', 'deleted_suppliers',
     'dismissed_nfs', 'supplier_rename_map', 'saved_views',
     'inquiry_three_page',   # [v125]
+    'inq3_officials',       # [v152] اعضای ثابت بررسی فنی و صاحب‌امضا
+    'payment_batches',      # [v16] لیست تأیید پرداخت مدیرعامل
+    'check_lists',          # [v16] لیست چک
+    'request_progress_manual',
 }
 
 # همه‌ی کلیدهایی که نوشتن‌شان در جدول settings مجاز است (برای ذخیره‌ی یکجا)
 ALLOWED_SETTING_KEYS = GENERIC_SETTING_KEYS | {
     'signature_b64', 'approver_signature_b64', 'vat_rate',
     'petty_tracking', 'dash_labels', 'nf_descriptions', 'mrp_plan', 'petty_fund',
-    # [v125] «استعلام سه برگی» پیش‌تر هیچ مسیر ذخیره واقعی نداشت و تنها راه
-    # ماندگاری‌اش هک tunnelSave بود (ذخیره داخل فیلد آدرس یک تامین‌کننده ساختگی).
     'inquiry_three_page',
+    'inq3_officials',
 }
 
-# ───────────────────────────────────────────────────────────────────────────
+# کلیدهایی که ذخیرهٔ یکجای PUT /api/settings اجازه‌شان را دارد.
+# سه‌برگی، لیست پرداخت، MRP و ماندهٔ اول دوره فقط از مسیر اختصاصی‌شان نوشته می‌شوند
+# تا نسخهٔ کهنهٔ یک مرورگر کل لیست را پاک نکند.
+SETTINGS_BULK_SAFE_KEYS = {
+    'deleted_suppliers', 'dismissed_nfs', 'supplier_rename_map',
+    'hidden_experts', 'sticky_notes', 'saved_views', 'supplier_categories',
+}
+
+# ─────────────────────────────────────────────────────────────────�──
 # تنخواه: فیلدهای هر نقش در «واریز تنخواه» (مطابق trackCanEdit در فرانت‌اند)
 # پیش از این، این سه مجوز فقط در مرورگر بررسی می‌شدند و سرور هیچ کنترلی نداشت؛
 # یعنی کاربر بدون مجوز می‌توانست از راه API همان فیلدها را تغییر دهد.
@@ -1120,8 +1131,16 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
              'sales_offset': 0, 'opening_balances': 0, 'tombstones': 0,
              'target': target, 'aliases': sorted(alias_set)}
 
+    alias_keys = {supplier_canonical_key(a) for a in alias_set if supplier_canonical_key(a)}
+
     def matches(v):
-        return _norm_sup_name(v) in alias_set
+        n = _norm_sup_name(v)
+        if not n or n == target:
+            return False
+        if n in alias_set:
+            return True
+        k = supplier_canonical_key(v)
+        return bool(k and k in alias_keys)
 
     # اطمینان از وجود رکورد مقصد
     trow = conn.execute('SELECT id, is_active FROM suppliers WHERE name=?', (target,)).fetchone()
@@ -1148,6 +1167,26 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
             if not dry_run:
                 conn.execute('UPDATE purchases SET supplier=?, supplier_id=? WHERE id=?',
                              (target, target_id, r['id']))
+
+    # ۱-ب) extra_json خود خرید (اگر supplier آنجا مانده باشد)
+    for r in conn.execute('SELECT id, extra_json FROM purchases').fetchall():
+        try:
+            e = json.loads(r['extra_json'] or '{}')
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(e, dict):
+            continue
+        changed = False
+        if matches(e.get('supplier')):
+            e['supplier'] = target
+            changed = True
+        for li in (e.get('line_items') or []):
+            if isinstance(li, dict) and matches(li.get('supplier')):
+                li['supplier'] = target
+                changed = True
+        if changed and not dry_run:
+            conn.execute('UPDATE purchases SET extra_json=? WHERE id=?',
+                         (json.dumps(e, ensure_ascii=False), r['id']))
 
     # ۲) purchase_items: نام تامین‌کننده داخل extra_json ردیف‌ها
     for r in conn.execute('SELECT id, extra_json FROM purchase_items').fetchall():
@@ -1180,7 +1219,8 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
     # ۵) اسناد JSON: قراردادها، فاکتورها، و هر مجموعه‌ای که نام تامین‌کننده دارد
     #    [v149] nf_records و ship_queue هم پوشش داده شدند.
     for coll in ('contracts', 'invoice_docs', 'contract_payments', 'returns',
-                 'manual_receipts', 'need_declarations', 'nf_records', 'ship_queue'):
+                 'manual_receipts', 'need_declarations', 'nf_records', 'ship_queue',
+                 'petty_cash'):
         for r in conn.execute('SELECT id, data FROM docs WHERE collection=?', (coll,)).fetchall():
             try:
                 d = json.loads(r['data'])
@@ -1202,6 +1242,25 @@ def merge_suppliers_tx(conn, target, aliases, actor=None, dry_run=False):
                 if not dry_run:
                     conn.execute('UPDATE docs SET data=? WHERE collection=? AND id=?',
                                  (json.dumps(d, ensure_ascii=False), coll, r['id']))
+
+    # ۵-الف) استعلام سه‌برگی (settings، نه docs)
+    inq = get_setting(conn, 'inquiry_three_page', [])
+    inq_n = 0
+    if isinstance(inq, list):
+        for rec in inq:
+            if not isinstance(rec, dict):
+                continue
+            for fld in ('supplier1', 'supplier2', 'supplier3', 'approved_supplier'):
+                if matches(rec.get(fld)):
+                    rec[fld] = target
+                    inq_n += 1
+            for sup in (rec.get('suppliers') or []):
+                if isinstance(sup, dict) and matches(sup.get('name')):
+                    sup['name'] = target
+                    inq_n += 1
+        if inq_n and not dry_run:
+            set_setting(conn, 'inquiry_three_page', inq)
+    stats['inquiry_three_page'] = inq_n
 
     # ۵-ب) [v149] فروش: تأمین‌کنندهٔ تهاتر — پیش از این جا می‌ماند و در گردش
     #      مالی همان شرکت با نام قدیمی ردیف جدا می‌ساخت.
@@ -1705,6 +1764,47 @@ def submitted_nf_numbers(body, line_items):
     return nums
 
 
+# [v152] اعضای ثابت بررسی فنی (برگ ۲) و صاحب‌امضای کمیسیون (برگ ۳)
+# فقط admin/manager ثبت می‌کنند؛ برای همه فرم‌ها پیش‌فرض ثابت می‌مانند.
+INQ3_OFFICIAL_KEYS = (
+    'tech_ex1', 'tech_role1', 'tech_ex2', 'tech_role2', 'tech_ex3', 'tech_role3',
+    'comm_ex1', 'comm_ex2', 'comm_ex3', 'comm_ex4',
+)
+INQ3_OFFICIAL_DEFAULTS = {
+    'tech_ex1': 'میثم زارع', 'tech_role1': '',
+    'tech_ex2': '', 'tech_role2': '',
+    'tech_ex3': '', 'tech_role3': '',
+    'comm_ex1': 'میثم زارع',
+    'comm_ex2': 'علیرضا فرجی',
+    'comm_ex3': 'کاووس سنگسری',
+    'comm_ex4': 'احسان‌الله شریفی',
+}
+
+
+def get_inq3_officials(conn):
+    cur = get_setting(conn, 'inq3_officials', {})
+    if not isinstance(cur, dict):
+        cur = {}
+    out = dict(INQ3_OFFICIAL_DEFAULTS)
+    for k in INQ3_OFFICIAL_KEYS:
+        if k in cur and cur[k] is not None:
+            out[k] = str(cur[k])
+    return out
+
+
+def save_inq3_officials(conn, body, actor=None):
+    cur = get_inq3_officials(conn)
+    incoming = body if isinstance(body, dict) else {}
+    for k in INQ3_OFFICIAL_KEYS:
+        if k in incoming:
+            cur[k] = str(incoming.get(k) or '')
+    set_setting(conn, 'inq3_officials', cur)
+    db.log_audit(conn, actor, 'update', 'inq3_officials', 0, after=cur,
+                 note='ثبت اعضای ثابت استعلام سه‌برگی')
+    conn.commit()
+    return cur
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): pass
 
@@ -1821,6 +1921,15 @@ class Handler(BaseHTTPRequestHandler):
             return True
         return (self.session_can(session_user, 'view_all') or
                 self.session_can(session_user, 'view_all_purchases'))
+
+    def tracking_can_view_all(self, session_user):
+        """[v152] دارندهٔ رهگیری باید بتواند با شماره درخواست، روند همه را ببیند
+        بدون اینکه view_all یا صفحات دیگر برایش باز شود."""
+        if session_user is None:
+            return False
+        if self.fin_can_view_all(session_user):
+            return True
+        return self.session_can(session_user, 'page_tracking')
 
     def invoice_can_view_all(self, session_user):
         """[v131] آیا این کاربر همهٔ اسناد تحویل مدارک را می‌بیند؟
@@ -1971,6 +2080,8 @@ class Handler(BaseHTTPRequestHandler):
                 lst = backup_list()
                 self.send_json({'ok': True, 'every_hours': BACKUP_EVERY_HOURS,
                                 'last': lst[0] if lst else None, 'rows': lst})
+            elif path == '/api/inq3_officials':
+                self.send_json({'ok': True, 'officials': get_inq3_officials(conn)})
             elif path == '/api/supplier_dups_preview':
                 # [v149] پیش‌نمایش گروه‌های هم‌نام برای ادغام خودکار (بدون تغییر داده)
                 _su = self.get_session_user(conn)
@@ -1987,10 +2098,11 @@ class Handler(BaseHTTPRequestHandler):
                 _su = self.get_session_user(conn)
                 rows = conn.execute('SELECT * FROM purchases ORDER BY id').fetchall()
                 out = [purchase_row_to_dict(conn, r) for r in rows]
-                if not self.fin_can_view_all(_su):
+                if not self.fin_can_view_all(_su) and not self.tracking_can_view_all(_su):
                     # فقط خریدهای خودِ کاربر (ردیف‌های دیگران اصلاً ارسال نمی‌شوند)
+                    # استثنا: دارندهٔ page_tracking برای رهگیری همهٔ درخواست‌ها
                     out = [p for p in out if self.fin_owns(p, _su)]
-                if not self.fin_can_view(_su):
+                if not self.fin_can_view(_su) and not self.session_can(_su, 'page_tracking'):
                     out = [strip_financial_fields(p) for p in out]
                 self.send_json(out)
             elif path == '/api/shippings':
@@ -2169,10 +2281,12 @@ class Handler(BaseHTTPRequestHandler):
         _fin_all = self.fin_can_view_all(_su)
         _fin_any = self.fin_can_view(_su)
         if not _fin_all:
-            purchases_ = [p for p in purchases_ if self.fin_owns(p, _su)]
+            if not self.tracking_can_view_all(_su):
+                purchases_ = [p for p in purchases_ if self.fin_owns(p, _su)]
             sales_ = [x for x in sales_ if self.fin_owns(x, _su)]
         if not _fin_any:
-            purchases_ = [strip_financial_fields(p) for p in purchases_]
+            if not self.session_can(_su, 'page_tracking'):
+                purchases_ = [strip_financial_fields(p) for p in purchases_]
             sales_ = []
             sales_returns_ = []
         _my_pids, _ = self.fin_my_purchase_ids(conn, _su)
@@ -2221,8 +2335,18 @@ class Handler(BaseHTTPRequestHandler):
             if _fin_all:
                 return rows
             return [r for r in rows if r.get('purchase_id') in _my_pids or self.fin_owns(r, _su)]
-        suppliers_names = [r['name'] for r in conn.execute(
-            'SELECT name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY name')]
+        _rmap = get_setting(conn, 'supplier_rename_map', {}) or {}
+        _alias_n = {_norm_sup_name(k) for k in (_rmap.keys() if isinstance(_rmap, dict) else [])}
+        suppliers_names = []
+        for r in conn.execute(
+            'SELECT name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY name'):
+            nm = r['name']
+            if _norm_sup_name(nm) in _alias_n:
+                continue
+            resolved = resolve_supplier_display(conn, nm)
+            if resolved and _norm_sup_name(resolved) != _norm_sup_name(nm):
+                continue
+            suppliers_names.append(nm)
         suppliers_full = [supplier_row_to_dict(r) for r in conn.execute('SELECT * FROM suppliers ORDER BY name')]
         users_ = [user_public_dict(r) for r in conn.execute('SELECT * FROM users ORDER BY id')]
         destinations_ = [dict(r) for r in conn.execute('SELECT * FROM destinations ORDER BY id')]
@@ -2248,12 +2372,16 @@ class Handler(BaseHTTPRequestHandler):
             # [v143.1] شمارهٔ آزاد بعدی فرم عدم تحقق (سراسری — برای پیشنهاد خودکار)
             'nf_next_number': next_nf_number(conn),
             '_finscope': _finscope,   # [v151]=None مگر برای دارندهٔ مجوز finance_view_all
-            'server_build': 'v151',   # نسخهٔ ساخت سرور — برای نمایش در نشان نسخه
+            'server_build': 'v52',   # نسخهٔ ساخت سرور — با APP_VERSION فرانت هم‌خوان است
             # [v125] petty_tracking در جدول settings ذخیره می‌شود ولی فرانت آن را
             # در سطح بالا (D.petty_tracking) می‌خواند. پیش‌تر ارسال نمی‌شد و
             # همیشه خالی می‌ماند؛ داده‌اش فقط از نسخه سخت‌کد می‌آمد.
             'petty_tracking': get_setting(conn, 'petty_tracking', []),
             'inquiry_three_page': get_setting(conn, 'inquiry_three_page', []),  # [v125]
+            'inq3_officials': get_inq3_officials(conn),  # [v152]
+            'payment_batches': get_setting(conn, 'payment_batches', []),
+            'check_lists': get_setting(conn, 'check_lists', []),
+            'request_progress_manual': get_setting(conn, 'request_progress_manual', {}),
             'petty_cash': self.petty_filter_docs(get_docs(conn, 'petty_cash'), _su),
             'petty_holders': get_simple_list(conn, 'petty_holders'),
             'car_models': get_simple_list(conn, 'car_models'),
@@ -2635,6 +2763,105 @@ class Handler(BaseHTTPRequestHandler):
         # پیش از این ذخیره آن از مسیر PUT/POST تنظیمات عمومی (مجوز manage_lists)
         # انجام می‌شد و برای ثبت‌کنندگان بدون آن مجوز با ۴۰۳ بی‌صدا شکست می‌خورد؛
         # مانده فقط در localStorage همان مرورگر می‌ماند و برای بقیه هرگز ذخیره نمی‌شد.
+
+
+        if path == '/api/purchases/bulk_settle':
+            # تسویه بدون واریز برای خریدهای قدیمی بدون فاکتور — فقط مدیر/ادمین
+            role = (session_user or {}).get('role')
+            if not self.require(session_user, role in ('admin', 'manager') or self.session_can(session_user, 'edit_any_purchase')):
+                return
+            ids = body.get('ids') or []
+            req = str(body.get('req_number') or '').strip()
+            rows = []
+            if ids:
+                for rid in ids:
+                    row = conn.execute('SELECT * FROM purchases WHERE id=?', (rid,)).fetchone()
+                    if row: rows.append(row)
+            elif req:
+                rows = list(conn.execute('SELECT * FROM purchases WHERE req_number=?', (req,)))
+                if not rows:
+                    rows = list(conn.execute("SELECT * FROM purchases WHERE replace(req_number,' ','')=?", (req.replace(' ',''),)))
+            else:
+                self.send_json({'ok': False, 'error': 'ids یا req_number لازم است'}, 400); return
+            n=0
+            for row in rows:
+                extra = json.loads(row['extra_json'] or '{}')
+                amt = float(extra.get('invoice_amount') or extra.get('paid') or row['paid_amount'] or row['remaining_amount'] or 0)
+                extra['paid'] = amt
+                extra['financial_status'] = 'تسویه'
+                extra['status'] = extra.get('status') or 'تسویه'
+                conn.execute(
+                    "UPDATE purchases SET closed=1, financial_status=?, paid_amount=?, remaining_amount=0, "
+                    "close_reason=?, closed_by=?, closed_at=?, extra_json=? WHERE id=?",
+                    ('تسویه', amt, 'تسویه بدون واریز — خرید قدیمی بدون فاکتور مالی',
+                     actor, now_iso(), json.dumps(extra, ensure_ascii=False), row['id'])
+                )
+                n += 1
+            db.log_audit(conn, actor, 'update', 'purchases', req or 'bulk', note='تسویه بدون واریز %s مورد' % n)
+            conn.commit()
+            self.send_json({'ok': True, 'count': n}); return
+
+        if path == '/api/payment_batches':
+            if not self.require(session_user, self.session_can(session_user, 'view_financial')
+                                or self.session_can(session_user, 'register_payment')): return
+            batches = body.get('payment_batches', body.get('batches'))
+            if batches is None and isinstance(body, dict) and 'id' in body:
+                # upsert تک‌لیست
+                cur = get_setting(conn, 'payment_batches', []) or []
+                if not isinstance(cur, list): cur = []
+                rec = dict(body)
+                rec.pop('_actor', None)
+                found = False
+                for i, x in enumerate(cur):
+                    if str(x.get('id')) == str(rec.get('id')):
+                        cur[i] = rec; found = True; break
+                if not found:
+                    cur.insert(0, rec)
+                set_setting(conn, 'payment_batches', cur)
+                db.log_audit(conn, actor, 'update' if found else 'create', 'payment_batches', rec.get('id'), after=rec)
+                conn.commit()
+                self.send_json({'ok': True, 'record': rec, 'payment_batches': cur}); return
+            if not isinstance(batches, list):
+                self.send_json({'ok': False, 'error': 'لیست نامعتبر'}, 400); return
+            set_setting(conn, 'payment_batches', batches)
+            db.log_audit(conn, actor, 'update', 'payment_batches', 'all')
+            conn.commit()
+            self.send_json({'ok': True, 'payment_batches': batches}); return
+
+        if path == '/api/check_lists':
+            if not self.require(session_user, self.session_can(session_user, 'view_financial')
+                                or self.session_can(session_user, 'register_payment')): return
+            lists = body.get('check_lists', body.get('lists'))
+            if lists is None and isinstance(body, dict) and 'id' in body:
+                cur = get_setting(conn, 'check_lists', []) or []
+                if not isinstance(cur, list): cur = []
+                rec = dict(body); rec.pop('_actor', None)
+                found = False
+                for i, x in enumerate(cur):
+                    if str(x.get('id')) == str(rec.get('id')):
+                        cur[i] = rec; found = True; break
+                if not found:
+                    cur.insert(0, rec)
+                set_setting(conn, 'check_lists', cur)
+                db.log_audit(conn, actor, 'update' if found else 'create', 'check_lists', rec.get('id'), after=rec)
+                conn.commit()
+                self.send_json({'ok': True, 'record': rec, 'check_lists': cur}); return
+            if not isinstance(lists, list):
+                self.send_json({'ok': False, 'error': 'لیست نامعتبر'}, 400); return
+            set_setting(conn, 'check_lists', lists)
+            conn.commit()
+            self.send_json({'ok': True, 'check_lists': lists}); return
+
+        if path == '/api/request_progress_manual':
+            if not self.require(session_user, True): return
+            data = body.get('request_progress_manual', body)
+            if not isinstance(data, dict):
+                self.send_json({'ok': False, 'error': 'نامعتبر'}, 400); return
+            data = {k: v for k, v in data.items() if k != '_actor'}
+            set_setting(conn, 'request_progress_manual', data)
+            conn.commit()
+            self.send_json({'ok': True}); return
+
         if path == '/api/opening_balances':
             if not self.require(session_user, self.session_can(session_user, 'register_payment')): return
             sup = (body.get('supplier') or '').strip()
@@ -2774,6 +3001,15 @@ class Handler(BaseHTTPRequestHandler):
                             'partial': bool(errors and results),
                             'backup': bk.get('file'),
                             'results': results, 'errors': errors}); return
+
+        if path == '/api/inq3_officials':
+            # [v152] ثبت یک‌باره اعضای ثابت بررسی فنی و صاحب‌امضا — فقط admin/manager
+            role = (session_user['role'] or '') if session_user else ''
+            if not self.require(session_user, role in ('admin', 'manager'),
+                                msg='فقط مدیر و ادمین می‌توانند اعضای ثابت را ثبت کنند'):
+                return
+            officials = save_inq3_officials(conn, body, actor)
+            self.send_json({'ok': True, 'officials': officials}); return
 
         if path == '/api/inquiry_three_page':
             # [v147] مسیر اختصاصی ثبت/ویرایش «استعلام سه برگی» — رکوردبه‌رکورد و امن.
@@ -3155,6 +3391,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'ok': False, 'error': 'شناسه رکورد نامعتبر است'}, 400); return
         role = (session_user['role'] or '') if session_user else ''
         is_mgr = role in ('admin', 'manager')
+        # [v152] نام ممیزان فنی و صاحب‌امضا فقط از تنظیمات ثابت می‌آید.
+        # غیرمدیر نمی‌تواند با بدنه درخواست آن‌ها را عوض کند.
+        if is_mgr and any(k in rec for k in INQ3_OFFICIAL_KEYS):
+            officials = save_inq3_officials(conn, rec, actor)
+        else:
+            officials = get_inq3_officials(conn)
+        for k in INQ3_OFFICIAL_KEYS:
+            rec[k] = officials.get(k, '')
         arr = get_setting(conn, 'inquiry_three_page', [])
         if not isinstance(arr, list):
             arr = []
@@ -3167,7 +3411,8 @@ class Handler(BaseHTTPRequestHandler):
             # رکورد جدید: مالک همان کاربر جاری است (به مقدار بدنه اعتماد نمی‌کنیم)
             rec['id'] = rid
             rec['expert'] = actor
-            arr.append(rec)
+            rec['created_at'] = rec.get('created_at') or now_iso()
+            arr.insert(0, rec)  # [v152] ثبت جدید بالای لیست
             action = 'create'
         else:
             old = arr[idx]
@@ -3233,7 +3478,7 @@ class Handler(BaseHTTPRequestHandler):
         for k, v in body.items():
             if k == '_actor':
                 continue
-            if k in ALLOWED_SETTING_KEYS:
+            if k in SETTINGS_BULK_SAFE_KEYS:
                 set_setting(conn, k, v)
                 saved.append(k)
             else:
@@ -3271,6 +3516,21 @@ class Handler(BaseHTTPRequestHandler):
         if not (parts[0] == 'api' and len(parts) == 3):
             self.send_json({'error': 'not found'}, 404); return
         collection, rid = parts[1], parts[2]
+
+        if collection == 'supplier_payments':
+            if not self.require(session_user, self.session_can(session_user, 'register_payment')): return
+            row = conn.execute('SELECT * FROM supplier_payments WHERE id=?', (rid,)).fetchone()
+            if not row:
+                self.send_json({'error': 'not found'}, 404); return
+            amt = body.get('amount', row['amount'])
+            note = body.get('note', row['note'])
+            dt = body.get('date', row['date'])
+            conn.execute('UPDATE supplier_payments SET amount=?, note=?, date=? WHERE id=?',
+                         (float(amt or 0), note or '', dt or '', rid))
+            conn.commit()
+            rec = dict(row); rec['amount']=float(amt or 0); rec['note']=note or ''; rec['date']=dt or ''
+            self.send_json(rec); return
+
 
         if collection == 'users':
             u = conn.execute('SELECT * FROM users WHERE id=?', (rid,)).fetchone()
@@ -3651,7 +3911,9 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute('SELECT * FROM requests WHERE id=?', (rid,)).fetchone()
             if not row:
                 self.send_json({'error': 'not found'}, 404); return
-            allowed = (session_user is not None and row['expert'] == session_user['name']) or \
+            allowed = (session_user is not None and (
+                    row['expert'] == session_user['name'] or
+                    row['created_by'] == session_user['name'])) or \
                 self.session_can(session_user, 'edit_request') or \
                 self.session_can(session_user, 'assign_request')
             if not self.require(session_user, allowed): return
@@ -4155,5 +4417,3 @@ if __name__ == '__main__':
     safe_print('امنیت شبکه: ' + ('فقط شبکهٔ داخلی مجاز است' if ALLOW_ONLY_PRIVATE
                                  else 'هشدار — اتصال از همه شبکه‌ها باز است'))
     server.serve_forever()
-
-
